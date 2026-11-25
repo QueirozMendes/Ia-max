@@ -1,5 +1,6 @@
 import { createServer } from 'node:http';
 import { library } from './public/library.js';
+import { voiceInstructions } from './public/voice.js';
 import { readFile, access, realpath } from 'node:fs/promises';
 import { resolve, sep, extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -31,6 +32,7 @@ if (local && (!Number.isInteger(localPort) || localPort < 1 || localPort > 65535
 const liveRoot = fileURLToPath(new URL('./.runtime/live2d/', import.meta.url));
 const liveTypes = { '.js': 'text/javascript', '.json': 'application/json', '.moc3': 'application/octet-stream', '.png': 'image/png', '.jpg': 'image/jpeg', '.webp': 'image/webp', '.wav': 'audio/wav', '.mp3': 'audio/mpeg' };
 const assets = new Map([
+  ['/voice.js', ['voice.js', 'text/javascript']],
   ['/live2d.js', ['live2d.js', 'text/javascript']],
   ['/max-turnaround.png', ['max-turnaround.png', 'image/png']],
   ['/max-anime.png', ['max-anime.png', 'image/png']],
@@ -137,7 +139,7 @@ createServer(async (req, res) => {
           voice: 'coral',
           response_format: 'mp3',
           input,
-          instructions: 'Fale em português brasileiro claro, com um timbre feminino suave e gentil, inspirado no jeito calmo e afetuoso de uma personagem adulta de anime. Use volume ameno, dicção nítida e velocidade moderada. Faça micro-pausas nas vírgulas e pausas um pouco maiores no fim das frases. Dê espaço a termos importantes. Deixe a entonação doce e natural, com poucas inflexões. Leia apenas o texto fornecido.',
+          instructions: voiceInstructions(body.style),
         }),
       });
       if (!upstream.ok) return respond(res, 502, { error: 'Não consegui gerar a voz expressiva.' });
