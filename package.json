@@ -8,6 +8,11 @@
   },
   "scripts": {
     "start": "node --env-file-if-exists=.env server.js",
-    "test": "node --test"
+    "test": "node --test",
+    "desktop": "electron ."
+  },
+  "main": "desktop/main.js",
+  "devDependencies": {
+    "electron": "45.5.0"
   }
 }
