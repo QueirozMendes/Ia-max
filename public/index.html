@@ -64,6 +64,7 @@
         <p id="mic-feedback" role="status" hidden></p>
         <video id="camera-preview" autoplay playsinline muted hidden aria-label="Prévia da sua câmera"></video>
       </div>
+      <details id="developer-panel" hidden><summary>Max Developer</summary><p id="developer-status" role="status">Selecione um projeto Git.</p><button id="developer-choose" type="button">Autorizar projeto</button> <button id="developer-revoke" type="button">Revogar</button><label>Arquivos (até 8)<select id="developer-files" multiple size="6"></select></label><label>Solicitação<textarea id="developer-task" maxlength="4000" rows="3"></textarea></label><button id="developer-propose" type="button">Preparar proposta</button> <button id="developer-apply" type="button" disabled>Aplicar proposta revisada</button><pre id="developer-review" style="white-space:pre-wrap;overflow-wrap:anywhere"></pre></details>
       <div id="history" class="history" role="log" aria-label="Mensagens">
         <div id="welcome" class="welcome">
           <h2 id="greeting">Oi, eu sou a Max.</h2>
