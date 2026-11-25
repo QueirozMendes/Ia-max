@@ -130,3 +130,27 @@ input[type=checkbox] { accent-color: var(--gold); }
 .max-live2d { position: absolute; inset: 0; width: 100%; height: 100%; }
 #max-avatar[hidden] { display: none; }
 #avatar-engine { grid-column: 1 / -1; color: var(--muted); font-size: .75rem; margin: 0; }
+
+[hidden]{display:none!important}
+#mobile-connection{color:var(--muted);font-size:.8rem;margin:0}
+#developer-panel{max-height:36vh;overflow:auto;min-width:0}
+#developer-panel label{display:block;margin:8px 0}
+#developer-panel pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:24vh;overflow:auto}
+.chat:has(#developer-panel:not([hidden])){grid-template-rows:auto auto auto minmax(0,1fr) auto}
+@media(max-width:640px){
+  body{padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom)}
+  .sidebar{padding-inline:max(12px,env(safe-area-inset-left));gap:6px}
+  .webui-link{display:none}
+  .chat{height:auto;min-height:0;max-height:none;display:flex;flex-direction:column;padding:10px 12px;gap:8px}
+  #presence{gap:5px;display:flex;flex-direction:column;align-items:stretch}
+  .avatar-stage,.avatar-stage[data-view="body"]{height:clamp(110px,22dvh,190px);min-height:0}
+  .presence-controls,.avatar-controls{gap:5px}
+  #presence button,.nav{min-height:36px}
+  #presence p{margin:0;font-size:.75rem}
+  .history{min-height:180px;max-height:45dvh;flex:1}
+  #chat-form{position:sticky;bottom:env(safe-area-inset-bottom);z-index:2}
+  textarea,input,select{font-size:16px}
+  .turn{max-width:100%}
+  #screen-observe,#screen-auto{display:none}
+  .toggle:has(#screen-auto){display:none}
+}
