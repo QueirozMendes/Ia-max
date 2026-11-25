@@ -6,6 +6,9 @@ import { readFile, access, realpath } from 'node:fs/promises';
 import { resolve, sep, extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createMemoryStore, relevantMemory, MEMORY_LIMIT } from './lib/memory.js';
+import { createStateStore, validateState } from './lib/state.js';
+const stateDirectory = fileURLToPath(new URL('./.runtime/', import.meta.url));
+const stateStores = { conversation: createStateStore(stateDirectory, 'conversation'), tasks: createStateStore(stateDirectory, 'tasks') };
 const memoryStore = createMemoryStore(fileURLToPath(new URL('./.runtime/', import.meta.url)));
 
 const port = Number(process.env.PORT || 4173);
@@ -100,12 +103,18 @@ createServer(async (req, res) => {
   if (req.method === 'GET' && req.url === '/api/status') {
     return respond(res, 200, { configured: !configurationError, configurationError, expressiveVoice, voiceProvider, voiceConfigured: expressiveVoice, codexAvailable: Boolean(key), owner, provider, providerName });
   }
+  const stateKind = req.url === '/api/state/conversation' ? 'conversation' : req.url === '/api/state/tasks' ? 'tasks' : null;
+  if (req.method === 'GET' && stateKind) {
+    if (req.headers['sec-fetch-site'] && req.headers['sec-fetch-site'] !== 'same-origin') return respond(res, 403, { error: 'Origem inválida.' });
+    try { return respond(res, 200, await stateStores[stateKind].read()); }
+    catch { return respond(res, 500, { error: 'Não consegui ler os dados centrais.' }); }
+  }
   if (req.method === 'GET' && req.url === '/api/memory') {
     if (req.headers['sec-fetch-site'] && req.headers['sec-fetch-site'] !== 'same-origin') return respond(res, 403, { error: 'Origem inválida.' });
     try { return respond(res, 200, await memoryStore.read()); }
     catch { return respond(res, 500, { error: 'Não consegui ler a memória local.' }); }
   }
-  if (req.method !== 'POST' || !['/api/chat', '/api/voice', '/api/memory'].includes(req.url)) return respond(res, 404, { error: 'Página indisponível.' });
+  if (req.method !== 'POST' || !['/api/chat', '/api/voice', '/api/memory', '/api/state/conversation', '/api/state/tasks'].includes(req.url)) return respond(res, 404, { error: 'Página indisponível.' });
   if (req.headers.origin !== requestOrigin || req.headers['content-type']?.split(';')[0].trim().toLowerCase() !== 'application/json') {
     return respond(res, 403, { error: 'Origem inválida.' });
   }
@@ -116,7 +125,7 @@ createServer(async (req, res) => {
     const chunks = [];
     for await (const chunk of req.iterator({ destroyOnReturn: false })) {
       size += chunk.length;
-      if (size > (req.url === '/api/voice' ? 20_000 : 750_000)) {
+      if (size > (req.url === '/api/voice' ? 20_000 : stateKind ? 24_000_000 : 750_000)) {
         res.setHeader('Connection', 'close');
         return respond(res, 413, { error: 'A conversa excedeu o tamanho permitido.' });
       }
@@ -127,6 +136,13 @@ createServer(async (req, res) => {
     return respond(res, 400, { error: 'Não consegui ler a mensagem.' });
   }
 
+  if (stateKind) {
+    if (!validateState(stateKind, body?.items) || !(body.revision === null || typeof body.revision === 'string')) return respond(res, 400, { error: 'Dados ou revisão inválidos.' });
+    try {
+      const result = await stateStores[stateKind].save(body.items, body.revision);
+      return respond(res, result.conflict ? 409 : 200, result);
+    } catch { return respond(res, 500, { error: 'Não consegui salvar os dados centrais.' }); }
+  }
   if (req.url === '/api/memory') {
     if (typeof body?.memory !== 'string' || body.memory.length > MEMORY_LIMIT ||
         !(body.revision === null || typeof body.revision === 'string')) {
@@ -196,7 +212,12 @@ createServer(async (req, res) => {
   const context = {
     data: new Intl.DateTimeFormat('pt-BR', { dateStyle: 'full', timeZone: 'America/Sao_Paulo' }).format(new Date()),
   };
-  if (!useCodex && typeof memory === 'string') context.memoria = relevantMemory(memory.slice(0, MEMORY_LIMIT), messages.at(-1).content);
+  if (!useCodex) {
+    try {
+      const saved = await memoryStore.read();
+      context.memoria = relevantMemory(saved.revision === null && typeof memory === 'string' ? memory.slice(0, MEMORY_LIMIT) : saved.memory, messages.at(-1).content);
+    } catch { return respond(res, 500, { error: 'Não consegui acessar a memória central.' }); }
+  }
   if (typeof file?.text === 'string') context.arquivo = { nome: String(file.name).slice(0, 250), texto: file.text.slice(0, 24000) };
   if (!useCodex && Array.isArray(pendingTasks)) {
     context.tarefasPendentes = pendingTasks.slice(0, 50).filter(item => typeof item === 'string').map(item => item.slice(0, 240));
