@@ -1,3 +1,4 @@
+import { createScreenObserver } from './screen-observer.js';
 import { splitSpeech } from './voice.js';
 import { moveMouth, setAvatarState, setVoiceLevel } from './avatar.js';
 import { library } from './library.js';
@@ -163,6 +164,20 @@ async function initializeMemory() {
   }
 }
 const memoryInitialization = initializeMemory();
+let lastScreenCommentAt = 0;
+let lastHumanSpeechAt = 0;
+const screenObserver = createScreenObserver({
+  button: byId('screen-observe'),
+  automatic: byId('screen-auto'),
+  status: byId('screen-status'),
+  available: () => supportsVision,
+  busy: () => pending || Boolean(playback) || Boolean(message.value.trim()) || Date.now() - lastScreenCommentAt < 180000 || Date.now() - lastHumanSpeechAt < 15000,
+  onComment: comment => {
+    lastScreenCommentAt = Date.now();
+    byId('screen-status').textContent = 'Max: ' + comment;
+    if (voiceMode.checked) void speak(comment);
+  }
+});
 const revisions = { conversation: null, tasks: null };
 let syncBusy = false;
 let syncReady = false;
@@ -587,6 +602,7 @@ if (!SpeechRecognition) {
     // Browser preview has no reliable echo separation during playback.
     if (!enabled || playback || pending || document.hidden) { clearTranscript(); return; }
     for (let i = event.resultIndex; i < event.results.length; i++) {
+      if (event.results[i].isFinal) { lastHumanSpeechAt = Date.now(); }
       if (event.results[i].isFinal) transcript = (transcript + ' ' + event.results[i][0].transcript).trim().slice(0, 10000);
     }
     clearTimeout(debounce);
