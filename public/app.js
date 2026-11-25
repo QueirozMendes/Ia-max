@@ -692,6 +692,7 @@ byId('chat-form').onsubmit = async event => {
       return;
     }
     status.textContent = result.incomplete ? 'A resposta atingiu o limite de tamanho.' : '';
+    window.dispatchEvent(new CustomEvent('max:user-message',{detail:content}));
     message.value = '';
     clearAttachment();
     cameraFrame = undefined;
