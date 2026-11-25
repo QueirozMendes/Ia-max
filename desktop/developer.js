@@ -1,6 +1,7 @@
 import { createProjectReader, validateProposal } from '../lib/project-reader.js';
-import { applyInWorktree, checkSyntax } from '../lib/project-worktree.js';
+import { applyInWorktree, checkSyntax, reviewWorktree } from '../lib/project-worktree.js';
 import { runProjectTests } from '../lib/project-tests.js';
+import { runCodex } from '../lib/codex-agent.js';
 import { dialog } from 'electron';
 export function createDeveloper({window, key, model='gpt-4.1-mini', workspace}) {
   let project, busy=false, generation=0, controller, pendingProposal, applied;
@@ -66,5 +67,22 @@ export function createDeveloper({window, key, model='gpt-4.1-mini', workspace}) 
       return await runProjectTests({directory,paths,signal:controller.signal});
     }finally{busy=false;controller=undefined;}
   }
-  return {choose,revoke,propose,apply,test};
+  async function codex(task){
+    if(!project||!applied||busy)throw Error('Aplique uma proposta em branch isolada primeiro.');
+    if(typeof task!=='string'||!task.trim()||task.length>4000)throw Error('Solicitação inválida.');
+    const current=generation, directory=applied.directory;
+    busy=true;
+    try{
+      const approval=await dialog.showMessageBox(window(),{type:'warning',buttons:['Cancelar','Executar Codex'],defaultId:0,cancelId:0,message:'Autorizar agente Codex nesta cópia?',detail:directory+'\nO agente poderá ler código e executar comandos permitidos pela sandbox do Codex. Use somente projetos confiáveis. A worktree não é uma fronteira de segurança. Revise as alterações e arquivos novos antes de publicar.'});
+      if(approval.response!==1||current!==generation)throw Error('Cancelado');
+      controller=new AbortController();
+      const result=await runCodex({directory,task,signal:controller.signal,binary:process.env.MAX_CODEX_BINARY});
+      if(current!==generation)throw Error('Autorização revogada');
+      const review=await reviewWorktree(directory);
+      const reader=await createProjectReader(directory);
+      const tests=(await reader.list()).filter(p=>/(?:^|\/)(?:[^/]+\.(?:test|spec)\.(?:js|mjs|cjs)|test\/[^/]+\.(?:js|mjs|cjs))$/.test(p));
+      return {...result,...review,tests};
+    }finally{busy=false;controller=undefined;}
+  }
+  return {choose,revoke,propose,apply,test,codex};
 }
