@@ -80,3 +80,37 @@ window.addEventListener('max:user-message',async event=>{
  finally{if(learningRequest===controller)learningRequest=undefined;}
 });
 window.addEventListener('pagehide',()=>learningRequest?.abort());
+
+const analyze=$('brain-analyze'),linkStatus=$('brain-link-status'),linkBox=$('brain-link-suggestions');
+analyze.onclick=async()=>{
+ if(busy||editing||refreshing)return;
+ analyze.disabled=true;linkBox.replaceChildren();
+ try{
+  if(!await refresh())throw Error('Não foi possível atualizar as notas.');
+  const response=await fetch('/api/brain/links',{cache:'no-store'});
+  const data=await response.json();
+  if(!response.ok)throw Error(data.error||'Análise indisponível.');
+  if(data.revision!==revision)throw Error('As notas mudaram. Analise novamente.');
+  for(const link of data.links){
+   const a=notes.find(n=>n.id===link.from),b=notes.find(n=>n.id===link.to);
+   if(!a||!b)continue;
+   const row=document.createElement('section'),description=document.createElement('p'),accept=document.createElement('button'),dismiss=document.createElement('button');
+   row.className='memory-suggestion';
+   description.textContent=a.title+' ↔ '+b.title+' · Termos em comum: '+link.terms.join(', ');
+   accept.type=dismiss.type='button';accept.textContent='Confirmar conexão';dismiss.textContent='Descartar';
+   dismiss.onclick=()=>row.remove();
+   accept.onclick=async()=>{
+    if(busy||editing||refreshing)return;
+    if(!await refresh()||revision!==data.revision){linkStatus.textContent='As notas mudaram. Analise novamente.';return;}
+    const first=notes.find(n=>n.id===link.from),second=notes.find(n=>n.id===link.to);
+    if(!first||!second||first.links.length>=20){linkStatus.textContent='Limite de conexões atingido.';return;}
+    if(first.links.includes(second.id)||second.links.includes(first.id)){row.remove();return;}
+    await save(notes.map(n=>n.id===first.id?{...n,links:[...n.links,second.id]}:n));
+    linkBox.replaceChildren();linkStatus.textContent='Consulte o status de salvamento e analise novamente para obter novas sugestões.';
+   };
+   row.append(description,accept,dismiss);linkBox.append(row);
+  }
+  linkStatus.textContent=data.links.length?'Conexões possíveis, ainda não confirmadas.':'Nenhuma conexão nova encontrada.';
+ }catch(e){linkStatus.textContent=e.message;}
+ finally{analyze.disabled=false;}
+};
