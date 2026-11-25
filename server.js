@@ -1,6 +1,9 @@
 import { createServer } from 'node:http';
 import { library } from './public/library.js';
 import { readFile } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
+import { createMemoryStore, relevantMemory, MEMORY_LIMIT } from './lib/memory.js';
+const memoryStore = createMemoryStore(fileURLToPath(new URL('./.runtime/', import.meta.url)));
 
 const port = Number(process.env.PORT || 4173);
 const origin = 'http://127.0.0.1:' + port;
@@ -60,7 +63,12 @@ createServer(async (req, res) => {
   if (req.method === 'GET' && req.url === '/api/status') {
     return respond(res, 200, { configured: !configurationError, configurationError, expressiveVoice, codexAvailable: Boolean(key), owner, provider, providerName });
   }
-  if (req.method !== 'POST' || !['/api/chat', '/api/voice'].includes(req.url)) return respond(res, 404, { error: 'Página indisponível.' });
+  if (req.method === 'GET' && req.url === '/api/memory') {
+    if (req.headers['sec-fetch-site'] && req.headers['sec-fetch-site'] !== 'same-origin') return respond(res, 403, { error: 'Origem inválida.' });
+    try { return respond(res, 200, await memoryStore.read()); }
+    catch { return respond(res, 500, { error: 'Não consegui ler a memória local.' }); }
+  }
+  if (req.method !== 'POST' || !['/api/chat', '/api/voice', '/api/memory'].includes(req.url)) return respond(res, 404, { error: 'Página indisponível.' });
   if (req.headers.origin !== origin || req.headers['content-type']?.split(';')[0].trim().toLowerCase() !== 'application/json') {
     return respond(res, 403, { error: 'Origem inválida.' });
   }
@@ -82,6 +90,16 @@ createServer(async (req, res) => {
     return respond(res, 400, { error: 'Não consegui ler a mensagem.' });
   }
 
+  if (req.url === '/api/memory') {
+    if (typeof body?.memory !== 'string' || body.memory.length > MEMORY_LIMIT ||
+        !(body.revision === null || typeof body.revision === 'string')) {
+      return respond(res, 400, { error: 'Memória ou revisão inválida.' });
+    }
+    try {
+      const result = await memoryStore.save(body.memory, body.revision);
+      return respond(res, result.conflict ? 409 : 200, result);
+    } catch { return respond(res, 500, { error: 'Não consegui salvar a memória local.' }); }
+  }
   if (req.url === '/api/voice') {
     if (!expressiveVoice) return respond(res, 503, { error: 'A voz expressiva não está configurada.' });
     const input = typeof body?.text === 'string' ? body.text.trim() : '';
@@ -123,7 +141,7 @@ createServer(async (req, res) => {
   const context = {
     data: new Intl.DateTimeFormat('pt-BR', { dateStyle: 'full', timeZone: 'America/Sao_Paulo' }).format(new Date()),
   };
-  if (!useCodex && typeof memory === 'string') context.memoria = memory.slice(0, 6000);
+  if (!useCodex && typeof memory === 'string') context.memoria = relevantMemory(memory.slice(0, MEMORY_LIMIT), messages.at(-1).content);
   if (typeof file?.text === 'string') context.arquivo = { nome: String(file.name).slice(0, 250), texto: file.text.slice(0, 24000) };
   if (!useCodex && Array.isArray(pendingTasks)) {
     context.tarefasPendentes = pendingTasks.slice(0, 50).filter(item => typeof item === 'string').map(item => item.slice(0, 240));
