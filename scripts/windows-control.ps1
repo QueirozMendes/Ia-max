@@ -6,7 +6,8 @@ $ErrorActionPreference = 'Stop'
 if ($Action -eq 'open-app') {
   $programs = @{notepad='notepad.exe';calculator='calc.exe';explorer='explorer.exe'}
   if (-not $programs.ContainsKey($App)) { throw 'Aplicativo nao autorizado' }
-  Start-Process -FilePath (Join-Path $env:SystemRoot ('System32\' + $programs[$App]))
+  $relative = if ($App -eq 'explorer') { 'explorer.exe' } else { 'System32\' + $programs[$App] }
+  Start-Process -FilePath (Join-Path $env:SystemRoot $relative)
   Write-Output 'OK'
   exit
 }
