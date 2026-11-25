@@ -1,4 +1,5 @@
 import { app, BrowserWindow, Tray, Menu, nativeImage, session, dialog, globalShortcut, desktopCapturer, powerMonitor, screen } from 'electron';
+import { createDeveloper } from './developer.js';
 import { createWindowsControl } from './windows-control.js';
 import { appendFile, mkdir } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
@@ -69,11 +70,13 @@ else {
       companion.loadURL(origin + '/companion.html').catch(() => companion?.close());
       refreshMenu();
     }
+    const developer = createDeveloper({window:()=>main,key:process.env.OPENAI_API_KEY,model:process.env.MAX_DEVELOPER_MODEL || process.env.OPENAI_MODEL});
     let controlEnabled = false, cursorPlay = false;
     const executeControl = createWindowsControl({root, idle:()=>powerMonitor.getSystemIdleTime(), available:()=>controlEnabled && powerMonitor.getSystemIdleState(20)!=='locked', confirm:async action=> (await dialog.showMessageBox(main,{type:'question',buttons:['Cancelar','Abrir'],defaultId:0,cancelId:0,message:'Abrir aplicativo: '+action.app+'?'})).response===1, audit:async entry=>{ const dir=join(root,'.runtime','logs'); await mkdir(dir,{recursive:true}); await appendFile(join(dir,'control.jsonl'),JSON.stringify({at:new Date().toISOString(),...entry})+'\n'); }});
     const cursorTimer=setInterval(()=>{if(cursorPlay && controlEnabled && powerMonitor.getSystemIdleTime()>=20 && main && !main.isFocused()) void executeControl({kind:'cursor-nudge'},{play:true});},60000);
     app.once('before-quit',()=>clearInterval(cursorTimer));
     function stopSensors() {
+      developer.revoke();
       controlEnabled = false; cursorPlay = false;
       screenAllowed = false;
       microphoneAllowed = false;
@@ -93,6 +96,13 @@ else {
           refreshMenu();
         }},
         { label: 'Desativar sensores e controle', click: stopSensors },
+        { label: 'Max Developer', submenu: [
+          {label:'Autorizar pasta de projeto',click:async()=>{
+            try { const result=await developer.choose(); if(result) await dialog.showMessageBox(main,{message:'Projeto autorizado',detail:result.root+'\n'+result.files.length+' arquivos elegíveis. A integração de solicitações será habilitada em uma próxima versão.'}); }
+            catch { await dialog.showMessageBox(main,{type:'error',message:'Não foi possível autorizar a pasta.'}); }
+          }},
+          {label:'Revogar acesso ao projeto',click:()=>developer.revoke()}
+        ]},
         { label: 'Controle do Windows', type: 'checkbox', enabled: process.platform === 'win32', checked: controlEnabled, click: item => {
           controlEnabled = item.checked;
           if (!controlEnabled) cursorPlay = false;
