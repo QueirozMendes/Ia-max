@@ -1,6 +1,10 @@
+import { mountLive2D } from './live2d.js';
 const canvas = document.getElementById('max-avatar');
 const stage = canvas.parentElement;
 const ctx = canvas.getContext('2d');
+let liveAvatar = null;
+const avatarStatus = document.getElementById('avatar-engine');
+void mountLive2D(stage, canvas, avatarStatus).then(result => { liveAvatar = result; });
 const reduced = matchMedia('(prefers-reduced-motion: reduce)');
 const portrait = new Image();
 portrait.src = '/max-anime.png';
@@ -177,7 +181,7 @@ function drawBody(pose, time, breath, blink, mouth, opacity, still, gesture) {
 
 function draw(time) {
   requestAnimationFrame(draw);
-  if (!canvas.getClientRects().length) return;
+  if (!stage.getClientRects().length) return;
   const still = reduced.matches;
   const phase = Math.max(0, time - stateStartedAt);
   const dt = Math.max(0, Math.min(50, time - previousFrame));
@@ -196,6 +200,10 @@ function draw(time) {
   mouthShape += (targetMouth - mouthShape) * (1 - Math.exp(-dt / (targetMouth > mouthShape ? 35 : 90)));
   const mouth = mouthShape;
 
+  if (liveAvatar) {
+    liveAvatar.update({ mouth, gazeX: gaze.x, gazeY: gaze.y, tilt: smoothTilt, still, state });
+    return;
+  }
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   const automaticCloseUp = angle.value === 'auto' &&
     (state === 'listening' || state === 'thinking' || (state === 'speaking' && phase > 1150));
