@@ -29,6 +29,17 @@ let ownerName = 'Gabriel';
 let modelConfigured;
 let modelSetupError;
 let remoteCodex = false;
+let autoBrain = false;
+const brainSelect=byId('brain-select');
+function updateBrainSelection(){
+ const target=brainSelect.value;
+ const web=byId('search');
+ web.disabled=target!=='openai'; web.parentElement.hidden=web.disabled; if(web.disabled)web.checked=false;
+ document.querySelector('[data-prompt=""]').hidden=web.disabled;
+ supportsCameraAnalysis=['openai','claude'].includes(target);
+ if(cameraStream)frameButton.hidden=!supportsCameraAnalysis;
+}
+
 let expressiveVoice = false;
 let hearingAvailable = false;
 let playback;
@@ -292,7 +303,7 @@ document.querySelectorAll('[data-panel]').forEach(button => {
   };
 });
 
-fetch('/api/status').then(response => response.json()).then(({ configured, configurationError, owner, provider, providerName, codexAvailable, expressiveVoice: available, hearingAvailable: hearingConfigured }) => {
+fetch('/api/status').then(response => response.json()).then(({ configured, configurationError, owner, provider, providerName, codexAvailable, expressiveVoice: available, hearingAvailable: hearingConfigured, brainMode, brainOptions }) => {
   ownerName = owner;
   modelConfigured = configured;
   modelSetupError = configurationError;
@@ -312,7 +323,15 @@ fetch('/api/status').then(response => response.json()).then(({ configured, confi
   if (cameraStream) frameButton.hidden = !supportsCameraAnalysis;
   byId('greeting').textContent = 'Oi, ' + owner + '. Eu sou a Max.';
   byId('connection').textContent = configured ? 'Modelo · ' + providerName : providerName + ' · configuração pendente';
-  if (provider !== 'openai') {
+  if (brainMode==='auto') {
+    autoBrain=true;
+    const names={local:'Local · sem API paga',openai:'OpenAI · pago',claude:'Claude · pago',codex:'Codex · pago',openrouter:'OpenRouter · externo'};
+    brainSelect.replaceChildren(...(brainOptions||['local']).map(value=>{const option=document.createElement('option');option.value=value;option.textContent=names[value];return option;}));
+    byId('brain-choice').hidden=false;
+    brainSelect.onchange=updateBrainSelection;
+    byId('connection').textContent='Brain Router · local primeiro';
+    updateBrainSelection();
+  } else if (provider !== 'openai') {
     byId('search').checked = false;
     byId('search').disabled = true;
     byId('search').parentElement.hidden = true;
@@ -663,9 +682,11 @@ byId('chat-form').onsubmit = async event => {
     return;
   }
 
+  const chosenBrain=autoBrain?brainSelect.value:undefined;
+  if(chosenBrain&&chosenBrain!=='local'&&!confirm('Usar '+chosenBrain+' nesta mensagem? Dados da conversa podem ser enviados ao provedor externo e gerar cobrança.'))return;
   const user = { role: 'user', content, file: attachment?.name };
   pending = true;
-  const controls = ['send', 'new-chat', 'attach', 'remove-file', 'message', 'search', 'use-tasks', 'codex-mode', 'remove-reference', 'camera-frame'].map(byId).filter(control => !control.disabled);
+  const controls = ['send', 'new-chat', 'attach', 'remove-file', 'message', 'search', 'use-tasks', 'codex-mode', 'remove-reference', 'camera-frame','brain-select'].map(byId).filter(control => !control.disabled);
   controls.forEach(control => control.disabled = true);
   status.textContent = 'Max está preparando a resposta…';
   setPresence('thinking', 'Preparando a resposta');
@@ -677,7 +698,7 @@ byId('chat-form').onsubmit = async event => {
     const response = await fetch('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ messages: recent, memory, file: attachment, search: byId('search').checked, pendingTasks, reference, image: cameraFrame, spokenTurn, coding: codexMode.checked }),
+      body: JSON.stringify({ messages: recent, memory, file: attachment, search: byId('search').checked, pendingTasks, reference, image: cameraFrame, spokenTurn, coding: codexMode.checked, brain:chosenBrain }),
     });
     const result = await response.json();
     if (!response.ok) throw new Error(result.error);
@@ -710,6 +731,7 @@ byId('chat-form').onsubmit = async event => {
     pending = false;
     if (!playback) setPresence('idle', 'Pronta para conversar');
     controls.forEach(control => control.disabled = false);
+    if(autoBrain){brainSelect.value='local';updateBrainSelection();}
     if (!byId('chat').hidden) message.focus();
   }
 };
