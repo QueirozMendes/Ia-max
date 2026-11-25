@@ -15,7 +15,7 @@ export async function mountLive2D(stage, fallback, status) {
   };
   try {
     const available = await fetch('/api/avatar-status').then(r => r.ok ? r.json() : null);
-    if (!available?.live2d) return null;
+    if (!available?.live2d) { status.textContent = 'Avatar clássico · Epsilon aguardando instalação'; return null; }
     await load('/live2d/vendor/live2dcubismcore.min.js');
     await load('/live2d/vendor/pixi.min.js');
     await load('/live2d/vendor/cubism4.min.js');
@@ -43,19 +43,41 @@ export async function mountLive2D(stage, fallback, status) {
     observer.observe(stage);
     resize();
     let frame = { mouth: 0, gazeX: 0, gazeY: 0, tilt: 0, still: false, state: 'idle' };
+    let pose = { x: 0, y: 0, z: 0, smile: 0, body: 0 };
+    let last = performance.now();
     const parameters = () => {
       const core = model.internalModel.coreModel;
-      const set = (id, value) => core.setParameterValueById(id, value);
+      const set = (id, value) => {
+        if (typeof core.getParameterIndex === 'function' && core.getParameterIndex(id) >= core.getParameterCount()) return;
+        core.setParameterValueById(id, value);
+      };
+      const now = performance.now();
+      const dt = Math.min(50, Math.max(0, now - last));
+      last = now;
+      const ease = 1 - Math.exp(-dt / 180);
+      const listening = frame.state === 'listening';
+      const thinking = frame.state === 'thinking';
+      const speaking = frame.state === 'speaking';
+      const targets = {
+        x: frame.still ? 0 : frame.gazeX * 18,
+        y: frame.still ? 0 : -frame.gazeY * 12 + (thinking ? 4 : 0),
+        z: frame.still ? 0 : frame.tilt * 180 / Math.PI + (listening ? -4 : 0),
+        smile: speaking ? .35 : listening ? .15 : 0,
+        body: frame.still ? 0 : frame.gazeX * 5 + Math.sin(now / 1800) * 1.5,
+      };
+      for (const key of Object.keys(pose)) pose[key] += (targets[key] - pose[key]) * ease;
       set('ParamMouthOpenY', frame.mouth);
-      set('ParamAngleX', frame.still ? 0 : frame.gazeX * 20);
-      set('ParamAngleY', frame.still ? 0 : -frame.gazeY * 15);
-      set('ParamAngleZ', frame.still ? 0 : frame.tilt * 180 / Math.PI);
+      set('ParamAngleX', pose.x);
+      set('ParamAngleY', pose.y);
+      set('ParamAngleZ', pose.z);
+      set('ParamBodyAngleX', pose.body);
+      set('ParamMouthForm', pose.smile);
       set('ParamEyeBallX', frame.still ? 0 : frame.gazeX);
       set('ParamEyeBallY', frame.still ? 0 : -frame.gazeY);
     };
     model.internalModel.on('beforeModelUpdate', parameters);
     fallback.hidden = true;
-    status.textContent = 'Avatar Live2D ativo';
+    status.textContent = 'Avatar Live2D ativo · modelo provisório';
     return {
       update(next) { frame = next; },
       destroy: release,
