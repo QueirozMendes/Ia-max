@@ -36,7 +36,7 @@ else {
     main = new BrowserWindow({
       width: 1100, height: 780, minWidth: 360, minHeight: 480, show: false,
       title: 'Max', backgroundColor: '#15131e',
-      webPreferences: { session: ses, contextIsolation: true, sandbox: true, nodeIntegration: false, webSecurity: true }
+      webPreferences: { session: ses, contextIsolation: true, sandbox: true, nodeIntegration: false, webSecurity: true, backgroundThrottling: false }
     });
     main.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
     main.webContents.on('will-navigate', (event, url) => { if (!trusted(url)) event.preventDefault(); });
