@@ -14,7 +14,7 @@ async function diagnose(){
    apply('core',data.configured?'Configurado · '+data.providerName:'Configuração pendente',data.configured?'ok':'warn');
    apply('voice',data.voiceConfigured?'Provedor configurado':window.speechSynthesis?'Voz do navegador':'Indisponível',data.voiceConfigured?'ok':'warn');
    apply('hearing',data.hearingAvailable&&navigator.mediaDevices?.getUserMedia?'Disponível · requer permissão':'Configuração pendente','warn');
-   apply('vision',data.configured&&data.provider==='openai'?'Disponível · requer permissão':'Não configurada','warn');
+   apply('vision',data.configured&&data.provider==='openai'?'Disponível · requer permissão':data.configured&&data.provider==='claude'?'Fotos · requer permissão':'Não configurada','warn');
    apply('developer',window.maxDeveloper?'Painel local disponível':'Somente no desktop','neutral');
    return true;
  }).catch(()=>{for(const id of ['core','voice','hearing','vision','developer'])apply(id,'Não verificado','warn');return false;});
