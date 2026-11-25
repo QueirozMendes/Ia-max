@@ -15,11 +15,14 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
+    timeout-minutes: 10
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - run: npm run check
-      - run: npm test
+      - name: Validar sintaxe de todos os módulos
+        run: npm run check
+      - name: Executar testes unitários e integração HTTP
+        run: npm test
