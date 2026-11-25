@@ -2,8 +2,14 @@
 <html lang="pt-BR">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Max · Assistente pessoal</title>
+  <meta name="theme-color" content="#201827">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/max-icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/max-anime.png">
+  <script type="module" src="/mobile.js"></script>
   <link rel="stylesheet" href="/style.css">
   <script type="module" src="/app.js"></script>
 </head>
@@ -17,6 +23,8 @@
       <button class="nav" data-panel="library" aria-pressed="false">Biblioteca</button>
     </nav>
     <a class="webui-link" href="http://127.0.0.1:3000/" target="_blank" rel="noopener noreferrer">Abrir Open WebUI</a>
+    <button id="mobile-install" type="button" hidden>Instalar Max</button>
+    <p id="mobile-connection" role="status" hidden></p>
     <div id="connection" role="status">Verificando conexão…</div>
   </aside>
   <main>
