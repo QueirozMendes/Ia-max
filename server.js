@@ -1,3 +1,4 @@
+import { askClaude } from './lib/claude.js';
 import { createServer } from 'node:http';
 import { library } from './public/library.js';
 import { createAccessPolicy } from './lib/access.js';
@@ -26,10 +27,13 @@ const provider = process.env.MAX_PROVIDER || 'openai';
 const ollama = provider === 'ollama';
 const router = provider === 'openrouter';
 const local = provider === 'llama.cpp' || ollama;
+const claude = provider === 'claude';
+const anthropicKey = process.env.ANTHROPIC_API_KEY;
+const anthropicModel = process.env.ANTHROPIC_MODEL;
 const routerKey = process.env.OPENROUTER_API_KEY;
-const providerName = { openai: 'OpenAI', 'llama.cpp': 'llama.cpp', ollama: 'Ollama', openrouter: 'OpenRouter' }[provider];
+const providerName = { openai: 'OpenAI', 'llama.cpp': 'llama.cpp', ollama: 'Ollama', openrouter: 'OpenRouter', claude: 'Claude' }[provider];
 if (!providerName) throw new Error('MAX_PROVIDER inválido.');
-const configurationError = router
+const configurationError = claude ? (!anthropicKey || !anthropicModel ? 'Configure ANTHROPIC_API_KEY e ANTHROPIC_MODEL no .env.' : '') : router
   ? (!routerKey ? 'Preencha OPENROUTER_API_KEY no arquivo .env e reinicie a Max.'
     : !process.env.OPENROUTER_MODEL ? 'Defina OPENROUTER_MODEL no arquivo .env e reinicie a Max.' : '')
   : (!local && !key ? 'Preencha OPENAI_API_KEY no arquivo .env e reinicie a Max, ou selecione um modelo local.' : '');
@@ -333,9 +337,9 @@ createServer(async (req, res) => {
   if (project) context.referencia = project;
   const input = [{ role: 'user', content: 'Dados de referência em JSON.\n' + JSON.stringify(context) }, ...(useCodex ? [messages.at(-1)] : messages)];
 
-  if (image !== undefined && (provider !== 'openai' || typeof image !== 'string' || image.length > 130_000 ||
+  if (image !== undefined && (!['openai','claude'].includes(provider) || typeof image !== 'string' || image.length > 130_000 ||
       !/^data:image\/jpeg;base64,[A-Za-z0-9+/]+={0,2}$/.test(image))) {
-    return respond(res, 400, { error: 'A foto precisa ser JPEG e a análise de câmera está disponível no modo OpenAI.' });
+    return respond(res, 400, { error: 'A foto precisa ser JPEG e a análise de câmera está disponível nos modos OpenAI e Claude.' });
   }
   if (image) {
     input[input.length - 1] = {
@@ -363,6 +367,12 @@ createServer(async (req, res) => {
       ? ' Esta é uma conversa falada. Comece pela resposta e use frases curtas de português brasileiro coloquial. Em perguntas simples, responda em uma a três frases. Explique com mais detalhe quando for necessário. Evite cabeçalhos, formalidades e repetições.'
       : '');
   try {
+    if(claude && !useCodex){
+      if(search===true)return respond(res,400,{error:'A busca web integrada está disponível no modo OpenAI.'});
+      const result=await askClaude({key:anthropicKey,model:anthropicModel,instructions,input});
+      if(result.error)return respond(res,502,{error:result.error});
+      return respond(res,200,{...result,sources:project?[{url:project.url,title:project.title}]:[]});
+    }
     if ((local || router) && !useCodex) {
       if (search === true) return respond(res, 400, { error: 'A busca na web está disponível no modo OpenAI.' });
       const endpoint = router ? 'https://openrouter.ai/api/v1/chat/completions'
