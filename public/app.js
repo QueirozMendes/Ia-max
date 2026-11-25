@@ -1,3 +1,4 @@
+import { splitSpeech } from './voice.js';
 import { moveMouth, setAvatarState, setVoiceLevel } from './avatar.js';
 import { library } from './library.js';
 
@@ -254,7 +255,7 @@ function finishSpeaking(active) {
   active.onDone?.();
 }
 
-async function speak(text, button, label = 'Ouvir', onDone) {
+async function speak(text, button, label = 'Ouvir', onDone, style = 'natural') {
   const sameButton = button && playback?.button === button;
   stopSpeaking();
   if (sameButton) return;
@@ -268,31 +269,58 @@ async function speak(text, button, label = 'Ouvir', onDone) {
   playback = active;
   if (button) button.textContent = 'Parar';
 
-  if (expressiveVoice && spoken.length <= 2400) {
+  if (expressiveVoice) {
     setPresence('thinking', 'Preparando a voz');
     try {
-      const response = await fetch('/api/voice', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: spoken }),
-        signal: active.controller.signal,
-      });
-      if (!response.ok) throw new Error('Voz indisponível');
-      const blob = await response.blob();
-      if (playback !== active) return;
-      active.url = URL.createObjectURL(blob);
-      active.audio = new Audio(active.url);
-      active.audio.onplaying = () => {
-        if (playback === active) setPresence('speaking', 'Falando');
+      const chunks = splitSpeech(spoken);
+      const fetchChunk = async text => {
+        const response = await fetch('/api/voice', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text, style }),
+          signal: active.controller.signal,
+        });
+        if (!response.ok) throw new Error('Voz indisponível');
+        return response.blob();
       };
-      active.audio.onended = () => finishSpeaking(active);
-      active.audio.onerror = () => { if (playback === active) stopSpeaking(); };
-      await active.audio.play();
-      if (playback === active) void connectLipSync(active);
+      for (const chunk of chunks) {
+        const blob = await fetchChunk(chunk);
+        if (playback !== active) return;
+        active.url = URL.createObjectURL(blob);
+        active.audio = new Audio(active.url);
+        const audio = active.audio;
+        const ended = new Promise((resolve, reject) => {
+          audio.onended = resolve;
+          audio.onerror = () => reject(new Error('Falha de áudio'));
+          active.controller.signal.addEventListener('abort', resolve, { once: true });
+        });
+        audio.onplaying = () => {
+          if (playback === active) setPresence('speaking', 'Falando');
+        };
+        await audio.play();
+        if (playback === active) void connectLipSync(active);
+        await ended;
+        if (playback !== active) return;
+        cancelAnimationFrame(active.lipFrame);
+        await active.audioContext?.close().catch(() => {});
+        active.audioContext = undefined;
+        URL.revokeObjectURL(active.url);
+        active.url = undefined;
+        setVoiceLevel(0);
+      }
+      finishSpeaking(active);
       return;
     } catch {
       if (playback !== active) return;
       status.textContent = 'A voz expressiva ficou indisponível. Usando a voz do dispositivo.';
+      cancelAnimationFrame(active.lipFrame);
+      active.audio?.pause();
+      await active.audioContext?.close().catch(() => {});
+      active.audioContext = undefined;
+      if (active.url) URL.revokeObjectURL(active.url);
+      active.url = undefined;
+      setVoiceLevel(null);
+      if (playback !== active) return;
     }
   }
 
@@ -306,8 +334,8 @@ async function speak(text, button, label = 'Ouvir', onDone) {
     if (playback === active) stopSpeaking();
   }, Math.max(10_000, spoken.length * 110));
   utterance.lang = 'pt-BR';
-  utterance.rate = .91;
-  utterance.pitch = 1.07;
+  utterance.rate = 1.0;
+  utterance.pitch = 1.03;
   const voices = window.speechSynthesis.getVoices().filter(voice => /^pt[-_]BR$/i.test(voice.lang));
   utterance.voice = voices.find(voice => /(?:luciana|fernanda|francisca|maria).*(?:premium|enhanced|aprimorada)|neural|natural/i.test(voice.name))
     || voices.find(voice => /flo|sandy|shelley|fernanda|francisca/i.test(voice.name))
