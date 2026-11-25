@@ -8,7 +8,7 @@ test('contextual suggestion only with consent', () => {
   assert.equal(decideInitiative({...state, screenConsent:false}, now), null);
 });
 test('quiet, sensitive, listening or repeated unanswered interactions are suppressed', () => {
-  for (const key of ['quiet','locked','sensitive','speaking','listening','busy']) assert.equal(decideInitiative({...state,[key]:true}, now), null);
+  for (const key of ['quiet','locked','sensitive','speaking','userSpeaking','busy']) assert.equal(decideInitiative({...state,[key]:true}, now), null);
   assert.equal(decideInitiative({...state,unanswered:2},now),null);
 });
 test('cursor play only when idle and opted in', () => {
@@ -17,4 +17,8 @@ test('cursor play only when idle and opted in', () => {
   assert.equal(mayExecute('click',{click:true},false),false);
   assert.equal(mayExecute('run-command',{ 'run-command':true },true),true);
   assert.equal(mayExecute('speak',{initiative:true,paused:true}),false);
+});
+
+test('microfone aberto não impede iniciativa quando não há fala', () => {
+  assert.equal(decideInitiative({...state, listening: true, userSpeaking: false}, now), 'contextual-tip');
 });
