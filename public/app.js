@@ -835,3 +835,43 @@ function renderLibrary() {
 }
 byId('library-filter').oninput = renderLibrary;
 renderLibrary();
+
+if (window.maxDeveloper) {
+  const dev=window.maxDeveloper, panel=byId('developer-panel'), feedback=byId('developer-status'), files=byId('developer-files'), review=byId('developer-review'), apply=byId('developer-apply');
+  const choose=byId('developer-choose'), propose=byId('developer-propose'), revoke=byId('developer-revoke');
+  let working=false, epoch=0;
+  panel.hidden=false;
+  async function perform(fn){
+    if(working)return;
+    working=true;choose.disabled=propose.disabled=true;apply.disabled=true;
+    const current=epoch;
+    try{await fn(current);}
+    catch(error){if(current===epoch)feedback.textContent=error.message||'Operação não concluída.';}
+    finally{working=false;choose.disabled=propose.disabled=false;}
+  }
+  choose.onclick=()=>perform(async current=>{
+    const result=await dev.choose();
+    if(!result||current!==epoch)return;
+    files.replaceChildren(...result.files.map(path=>{const option=document.createElement('option');option.value=path;option.textContent=path;return option;}));
+    review.textContent='';feedback.textContent=result.root;
+  });
+  revoke.onclick=async()=>{
+    epoch++;apply.disabled=true;files.replaceChildren();review.textContent='';
+    await dev.revoke();feedback.textContent='Acesso revogado.';
+  };
+  propose.onclick=()=>perform(async current=>{
+    const paths=Array.from(files.selectedOptions,o=>o.value);
+    feedback.textContent='Preparando proposta...';review.textContent='';
+    const result=await dev.propose(byId('developer-task').value,paths);
+    if(current!==epoch)return;
+    review.textContent=result.summary+'\n\n'+result.changes.map(c=>'Arquivo: '+c.path+'\nConteúdo proposto:\n'+c.text).join('\n\n');
+    apply.disabled=!result.changes.length;feedback.textContent='Revise o conteúdo antes de aplicar.';
+  });
+  apply.onclick=()=>perform(async current=>{
+    feedback.textContent='Criando branch isolada...';
+    const result=await dev.apply();
+    if(current!==epoch)return;
+    review.textContent='Branch: '+result.branch+'\nPasta: '+result.directory+'\nSintaxe: '+(result.syntax.map(r=>r.path+': '+(r.ok?'OK':'FALHOU')).join(', ')||'Nenhum JavaScript verificado')+'\n\n'+result.diff;
+    feedback.textContent='Alterações locais prontas para revisão. Nenhum commit ou push realizado.';
+  });
+}
