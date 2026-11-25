@@ -1,0 +1,19 @@
+{
+  "id": "/",
+  "name": "Max · Assistente pessoal",
+  "short_name": "Max",
+  "lang": "pt-BR",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#17131c",
+  "theme_color": "#201827",
+  "icons": [
+    {
+      "src": "/max-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
