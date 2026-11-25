@@ -12,6 +12,7 @@
   <script type="module" src="/mobile.js"></script>
   <link rel="stylesheet" href="/style.css">
   <script type="module" src="/app.js"></script>
+  <script type="module" src="/brain-ui.js"></script>
 </head>
 <body>
   <aside class="sidebar">
@@ -19,6 +20,7 @@
     <nav aria-label="Painel">
       <button class="nav active" data-panel="chat" aria-pressed="true">Conversa</button>
       <button class="nav" data-panel="memory" aria-pressed="false">Memória</button>
+      <button class="nav" data-panel="brain" aria-pressed="false">Second Brain</button>
       <button class="nav" data-panel="tasks" aria-pressed="false">Tarefas</button>
       <button class="nav" data-panel="library" aria-pressed="false">Biblioteca</button>
     </nav>
@@ -113,6 +115,21 @@
         <p>As lembranças ficam no computador e trechos podem ser enviados ao modelo selecionado durante a conversa. Não guarde senhas ou chaves de API.</p>
         <span id="memory-status" role="status"></span>
       </form>
+    </section>
+    <section id="brain" class="panel utility" hidden>
+      <h1>Max Second Brain</h1>
+      <p>Seu mapa de conhecimentos. Somente notas autorizadas e relevantes entram no contexto das conversas.</p>
+      <div class="brain-tools"><strong id="brain-count">0 notas</strong><button id="brain-add" type="button">+ Nova nota</button><button id="brain-refresh" type="button">Sincronizar</button><label>Área <select id="brain-filter"><option value="">Todas</option></select></label></div>
+      <div id="brain-graph"></div><p id="brain-status" role="status"></p>
+      <form id="brain-editor" hidden>
+        <label>Título <input id="brain-title" maxlength="80" required></label>
+        <label>Área <select id="brain-area"></select></label>
+        <label>Conteúdo <textarea id="brain-body" maxlength="2000" required rows="5"></textarea></label>
+        <label>Conexões com outras notas <select id="brain-links" multiple size="5"></select></label>
+        <label><input type="checkbox" id="brain-context"> Permitir uso desta nota nas respostas, inclusive envio ao modelo de IA configurado.</label>
+        <button class="primary" type="submit">Salvar nota</button> <button id="brain-cancel" type="button">Cancelar</button> <button id="brain-delete" type="button">Excluir nota</button>
+      </form>
+      <div id="brain-list" class="brain-tools"></div>
     </section>
     <section id="tasks" class="panel utility" hidden>
       <h1>Tarefas</h1>
