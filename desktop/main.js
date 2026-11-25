@@ -71,7 +71,7 @@ else {
       refreshMenu();
     }
     const developer = createDeveloper({window:()=>main,key:process.env.OPENAI_API_KEY,model:process.env.MAX_DEVELOPER_MODEL || process.env.OPENAI_MODEL,workspace:join(root,'.runtime','developer')});
-    for(const [name,fn] of Object.entries({choose:()=>developer.choose(),propose:(task,paths)=>developer.propose(task,paths),apply:()=>developer.apply(),revoke:()=>developer.revoke()})) {
+    for(const [name,fn] of Object.entries({choose:()=>developer.choose(),propose:(task,paths)=>developer.propose(task,paths),apply:()=>developer.apply(),test:paths=>developer.test(paths),revoke:()=>developer.revoke()})) {
       ipcMain.handle('max-dev:'+name,(event,...args)=>{
         if(event.sender!==main.webContents || event.senderFrame!==main.webContents.mainFrame || !trusted(event.senderFrame.url) || powerMonitor.getSystemIdleState(20)==='locked')throw Error('Acesso local não autorizado');
         return fn(...args);
