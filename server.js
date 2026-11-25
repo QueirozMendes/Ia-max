@@ -1,6 +1,7 @@
 import { createServer } from 'node:http';
 import { library } from './public/library.js';
-import { readFile } from 'node:fs/promises';
+import { readFile, access, realpath } from 'node:fs/promises';
+import { resolve, sep, extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createMemoryStore, relevantMemory, MEMORY_LIMIT } from './lib/memory.js';
 const memoryStore = createMemoryStore(fileURLToPath(new URL('./.runtime/', import.meta.url)));
@@ -27,7 +28,10 @@ const localPort = Number(ollama ? process.env.OLLAMA_PORT || 11434 : process.env
 if (local && (!Number.isInteger(localPort) || localPort < 1 || localPort > 65535 || localPort === port)) {
   throw new Error('A porta do provedor local deve ser válida e diferente de PORT.');
 }
+const liveRoot = fileURLToPath(new URL('./.runtime/live2d/', import.meta.url));
+const liveTypes = { '.js': 'text/javascript', '.json': 'application/json', '.moc3': 'application/octet-stream', '.png': 'image/png', '.jpg': 'image/jpeg', '.webp': 'image/webp', '.wav': 'audio/wav', '.mp3': 'audio/mpeg' };
 const assets = new Map([
+  ['/live2d.js', ['live2d.js', 'text/javascript']],
   ['/max-turnaround.png', ['max-turnaround.png', 'image/png']],
   ['/max-anime.png', ['max-anime.png', 'image/png']],
   ['/avatar.js', ['avatar.js', 'text/javascript']],
@@ -48,6 +52,25 @@ createServer(async (req, res) => {
   res.setHeader('Content-Security-Policy', "default-src 'self'; media-src 'self' blob:; frame-ancestors 'none'; object-src 'none'; base-uri 'none'");
   if (req.headers.host !== '127.0.0.1:' + port) return respond(res, 403, { error: 'Abra a Max pelo endereço local exibido no terminal.' });
 
+  if (req.method === 'GET' && req.url === '/api/avatar-status') {
+    const files = ['vendor/live2dcubismcore.min.js', 'vendor/pixi.min.js', 'vendor/cubism4.min.js', 'model/max.model3.json'];
+    const live2d = await Promise.all(files.map(file => access(resolve(liveRoot, file)))).then(() => true, () => false);
+    return respond(res, 200, { live2d });
+  }
+  if (req.method === 'GET' && req.url.startsWith('/live2d/')) {
+    try {
+      const name = decodeURIComponent(req.url.slice('/live2d/'.length));
+      if (!/^(vendor|model)\/[a-zA-Z0-9_./ -]+$/.test(name) || name.split('/').some(part => part === '..' || part.startsWith('.'))) throw new Error('invalid path');
+      const type = liveTypes[extname(name).toLowerCase()];
+      if (!type) throw new Error('invalid type');
+      const root = await realpath(liveRoot);
+      const file = await realpath(resolve(root, name));
+      if (!file.startsWith(root + sep)) throw new Error('invalid path');
+      const bytes = await readFile(file);
+      res.writeHead(200, { 'Content-Type': type });
+      return res.end(bytes);
+    } catch { return respond(res, 404, { error: 'Recurso Live2D indisponível.' }); }
+  }
   const asset = assets.get(req.url);
   res.setHeader('Referrer-Policy', 'no-referrer');
   res.setHeader('Permissions-Policy', 'camera=(self), microphone=(self), geolocation=()');
