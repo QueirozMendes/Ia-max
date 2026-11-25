@@ -119,8 +119,10 @@ let messages = read('conversation', []);
 let memory = read('memory', '');
 let tasks = read('tasks', []);
 if (!Array.isArray(messages)) messages = [];
+messages = messages.filter(item => item && ['user', 'assistant'].includes(item.role) && typeof item.content === 'string').slice(-100);
 if (typeof memory !== 'string') memory = '';
 if (!Array.isArray(tasks)) tasks = [];
+tasks = tasks.filter(item => item && typeof item.id === 'string' && typeof item.title === 'string');
 byId('memory-text').value = memory;
 
 document.querySelectorAll('[data-panel]').forEach(button => {
