@@ -154,3 +154,5 @@ input[type=checkbox] { accent-color: var(--gold); }
   #screen-observe,#screen-auto{display:none}
   .toggle:has(#screen-auto){display:none}
 }
+
+.brain-tools{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:12px 0}.brain-tools label{margin:0}#brain-graph{background:radial-gradient(ellipse,#35274d,#15121d 72%);border:1px solid #59416d;border-radius:18px;overflow:hidden}#brain-graph svg{display:block;width:100%;height:auto}.brain-node{cursor:pointer}.brain-node:focus{outline:2px solid white}.brain-core,.brain-halo{animation:brain-breathe 3s ease-in-out infinite;transform-box:fill-box;transform-origin:center}.brain-edge{opacity:.6;stroke-dasharray:4 8;animation:brain-flow 4s linear infinite}@keyframes brain-breathe{50%{transform:scale(1.12);opacity:.7}}@keyframes brain-flow{to{stroke-dashoffset:-48}}#brain-editor{padding:16px;border:1px solid var(--stroke);border-radius:12px}#brain-editor select{display:block;width:100%;margin:6px 0 12px}#brain-editor input:not([type]){display:block}#brain-list button{overflow-wrap:anywhere;max-width:100%}@media(prefers-reduced-motion:reduce){.brain-core,.brain-halo,.brain-edge{animation:none}}
