@@ -46,16 +46,22 @@ createServer(async (req, res) => {
   if (req.headers.host !== '127.0.0.1:' + port) return respond(res, 403, { error: 'Abra a Max pelo endereço local exibido no terminal.' });
 
   const asset = assets.get(req.url);
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader('Permissions-Policy', 'camera=(self), microphone=(self), geolocation=()');
   if (req.method === 'GET' && asset) {
     res.setHeader('Content-Type', asset[1].startsWith('text/') ? asset[1] + '; charset=utf-8' : asset[1]);
-    return res.end(await readFile(new URL('./public/' + asset[0], import.meta.url)));
+    try {
+      return res.end(await readFile(new URL('./public/' + asset[0], import.meta.url)));
+    } catch {
+      return respond(res, 404, { error: 'Recurso indisponível.' });
+    }
   }
 
   if (req.method === 'GET' && req.url === '/api/status') {
     return respond(res, 200, { configured: !configurationError, configurationError, expressiveVoice, codexAvailable: Boolean(key), owner, provider, providerName });
   }
   if (req.method !== 'POST' || !['/api/chat', '/api/voice'].includes(req.url)) return respond(res, 404, { error: 'Página indisponível.' });
-  if (req.headers.origin !== origin || req.headers['content-type'] !== 'application/json') {
+  if (req.headers.origin !== origin || req.headers['content-type']?.split(';')[0].trim().toLowerCase() !== 'application/json') {
     return respond(res, 403, { error: 'Origem inválida.' });
   }
 
