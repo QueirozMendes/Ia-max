@@ -9,7 +9,8 @@
   "scripts": {
     "start": "node --env-file-if-exists=.env server.js",
     "test": "node --test",
-    "desktop": "electron ."
+    "desktop": "electron .",
+    "check": "node scripts/check.mjs"
   },
   "main": "desktop/main.js",
   "devDependencies": {
