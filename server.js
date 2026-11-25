@@ -52,6 +52,7 @@ let transcribing = false;
 let memoryLearningBusy = false;
 let lastMemoryLearning = 0;
 const assets = new Map([
+  ['/boot.js', ['boot.js', 'text/javascript']],
   ['/brain-ui.js', ['brain-ui.js', 'text/javascript']],
   ['/manifest.webmanifest', ['manifest.webmanifest', 'application/manifest+json']],
   ['/max-icon.svg', ['max-icon.svg', 'image/svg+xml']],
