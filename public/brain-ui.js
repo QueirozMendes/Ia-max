@@ -41,3 +41,42 @@ editor.onsubmit=e=>{e.preventDefault();const title=$('brain-title').value.trim()
 $('brain-delete').onclick=()=>{if(selected&&confirm('Excluir esta nota e suas conexões?'))void save(notes.filter(x=>x.id!==selected).map(x=>({...x,links:x.links.filter(id=>id!==selected)})));};
 document.querySelector('[data-panel="brain"]').addEventListener('click',()=>void refresh());
 setInterval(()=>{if(!panel.hidden&&!document.hidden)void refresh();},10000);
+
+const learning=$('living-memory-enabled'), learningStatus=$('living-memory-status'), suggestionsBox=$('living-memory-suggestions');
+let learningRequest, suggestionEpoch=0;
+learning.onchange=()=>{
+ if(learning.checked&&!confirm('Permitir análise adicional das mensagens que você enviar para sugerir lembranças? A OpenAI recebe o texto da mensagem e notas relevantes autorizadas. Nenhuma sugestão é salva sem sua revisão.'))learning.checked=false;
+ if(!learning.checked){suggestionEpoch++;learningRequest?.abort();suggestionsBox.replaceChildren();}
+ learningStatus.textContent=learning.checked?'Memória viva ativa nesta sessão.':'Memória viva desativada.';
+};
+window.addEventListener('max:user-message',async event=>{
+ if(!learning.checked||learningRequest)return;
+ const text=event.detail;
+ if(typeof text!=='string'||!text.trim())return;
+ const current=++suggestionEpoch,controller=new AbortController();learningRequest=controller;
+ try{
+  const res=await fetch('/api/memory/suggest',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:text}),signal:controller.signal});
+  if(!res.ok)throw Error('Análise indisponível.');
+  const data=await res.json();
+  if(current!==suggestionEpoch||!learning.checked)return;
+  for(const suggestion of data.suggestions||[]){
+   if(suggestionsBox.children.length>=12)break;
+   const row=document.createElement('section'),title=document.createElement('strong'),body=document.createElement('p'),accept=document.createElement('button'),dismiss=document.createElement('button');
+   row.className='memory-suggestion';title.textContent=(suggestion.existingId?'Possível atualização: ':'Nova lembrança: ')+suggestion.title;body.textContent=suggestion.body;accept.type=dismiss.type='button';accept.textContent='Revisar';dismiss.textContent='Descartar';
+   dismiss.onclick=()=>row.remove();
+   accept.onclick=async()=>{
+    if(editing||busy)return;
+    await refresh();
+    if(!ready||revision!==data.revision){learningStatus.textContent='As notas mudaram desde a sugestão. Revise manualmente ou descarte.';return;}
+    edit(suggestion.existingId);
+    $('brain-title').value=suggestion.title;$('brain-area').value=suggestion.area;$('brain-body').value=suggestion.body;
+    learningStatus.textContent='Revise a nota e clique em Salvar nota.';
+    editor.scrollIntoView({block:'nearest'});row.remove();
+   };
+   row.append(title,body,accept,dismiss);suggestionsBox.append(row);
+  }
+  learningStatus.textContent=data.suggestions.length?'Novas sugestões aguardam revisão.':'Nenhuma nova lembrança identificada.';
+ }catch{if(!controller.signal.aborted)learningStatus.textContent='Não foi possível analisar esta mensagem.';}
+ finally{if(learningRequest===controller)learningRequest=undefined;}
+});
+window.addEventListener('pagehide',()=>learningRequest?.abort());
