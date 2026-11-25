@@ -1,6 +1,6 @@
 const $=id=>document.getElementById(id);
 const boot=$('max-boot'),list=$('boot-modules'),start=$('boot-start'),retry=$('boot-retry'),skip=$('boot-skip'),summary=$('boot-summary');
-const checks=[['core','Max Core'],['memory','Memória central'],['brain','Second Brain'],['voice','Voz'],['hearing','Audição'],['vision','Visão'],['avatar','Avatar'],['developer','Developer']];
+const checks=[['core','Max Core'],['local','Cérebro local'],['memory','Memória central'],['brain','Second Brain'],['voice','Voz'],['hearing','Audição'],['vision','Visão'],['avatar','Avatar'],['developer','Developer']];
 let generation=0,controller;
 const rows=new Map();
 for(const [id,label] of checks){const row=document.createElement('li'),name=document.createElement('span'),value=document.createElement('span');name.textContent=label;value.textContent='Aguardando';row.append(name,value);list.append(row);rows.set(id,value);}
@@ -18,10 +18,11 @@ async function diagnose(){
    apply('developer',window.maxDeveloper?'Painel local disponível':'Somente no desktop','neutral');
    return true;
  }).catch(()=>{for(const id of ['core','voice','hearing','vision','developer'])apply(id,'Não verificado','warn');return false;});
+ const local=get('/api/local-brain',signal).then(data=>apply('local',data.enabled===false?'Modo externo':data.ready?'Pronto · '+data.selected:data.reachable?'Modelo não instalado':'Ollama desconectado',data.ready?'ok':data.enabled===false?'neutral':'warn')).catch(()=>apply('local','Não verificado','warn'));
  const memory=get('/api/memory',signal).then(()=>apply('memory','Acessível','ok')).catch(()=>apply('memory','Não verificada','warn'));
  const brain=get('/api/state/brain',signal).then(data=>apply('brain',data.items.length+' notas acessíveis','ok')).catch(()=>apply('brain','Não verificado','warn'));
  const avatar=get('/api/avatar-status',signal).then(data=>apply('avatar',data.live2d?'Live2D disponível':'Avatar clássico',data.live2d?'ok':'neutral')).catch(()=>apply('avatar','Não verificado','warn'));
- const [connected]=await Promise.all([status,memory,brain,avatar]);
+ const [connected]=await Promise.all([status,memory,brain,avatar,local]);
  if(run!==generation)return;summary.textContent=connected?'Oi! Vamos começar?':'Não consegui confirmar a conexão. Confira o Max Core.';start.disabled=!connected;retry.disabled=false;
 }
 function close(greet=false){generation++;controller?.abort();boot.hidden=true;try{sessionStorage.setItem('max.boot.seen','1');}catch{}$('message').focus();if(greet&&!$('greet-max').disabled)$('greet-max').click();}
