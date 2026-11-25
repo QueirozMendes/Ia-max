@@ -1,0 +1,25 @@
+const github = 'https://github.com/';
+
+export const library = [
+  ['leon-ai/leon', 'Leon', 'Assistente pessoal de código aberto, com arquitetura para integrar habilidades.'],
+  ['lyogavin/airllm', 'AirLLM', 'Biblioteca de inferência de modelos grandes por camadas para reduzir o uso de memória da GPU.'],
+  ['msitarzewski/agency-agents', 'Agency Agents', 'Coleção de perfis de agentes para tarefas especializadas, como engenharia, design e gestão.'],
+  ['vercel/ai', 'Vercel AI SDK', 'Integração de modelos e interfaces de IA em TypeScript.'],
+  ['microsoft/ai-agents-for-beginners', 'Microsoft · AI Agents for Beginners', 'Curso com lições para aprender a construir agentes.'],
+  ['activepieces/activepieces', 'Activepieces', 'Plataforma de automação e integração de aplicativos.'],
+  ['josephmisiti/awesome-machine-learning', 'Awesome Machine Learning', 'Catálogo de ferramentas e bibliotecas de aprendizado de máquina.'],
+  ['lawlite19/MachineLearning_Python', 'MachineLearning_Python', 'Implementações de algoritmos de aprendizado de máquina em Python.'],
+  ['wepe/MachineLearning', 'MachineLearning · wepe', 'Exemplos básicos de aprendizado de máquina e aprendizado profundo.'],
+  ['huggingface/transformers', 'Hugging Face Transformers', 'Biblioteca de modelos para inferência e treinamento.'],
+  ['langgenius/dify', 'Dify', 'Plataforma para fluxos de IA e busca de contexto em documentos.'],
+  ['langchain-ai/langchain', 'LangChain', 'Biblioteca de integração de modelos, ferramentas e agentes.'],
+  ['ggml-org/llama.cpp', 'llama.cpp', 'Execução local de modelos GGUF. A Max pode usar o servidor HTTP deste projeto.'],
+  ['Significant-Gravitas/AutoGPT', 'AutoGPT', 'Referência para arquitetura e fluxos de agentes.'],
+  ['drevendev/FrankenRepo', 'FrankenRepo', 'Experimento de combinação de repositórios com Gemma.'],
+  ['drevendev/FrankenRepo/blob/master/docs/eval/REAL_RUNS.md', 'FrankenRepo · Avaliações', 'Registros de avaliação do projeto.'],
+  ['drevendev/FrankenRepo/blob/master/ASSETS_CREDITS.md', 'FrankenRepo · Créditos', 'Atribuições dos recursos visuais e sonoros do projeto.'],
+  ['FoundationAgents/MetaGPT', 'MetaGPT', 'Referência de colaboração entre agentes com papéis distintos.'],
+  ['Open-LLM-VTuber/Open-LLM-VTuber', 'Open-LLM-VTuber', 'Referência de conversa por voz com interrupção e avatar Live2D.'],
+  ['moeru-ai', 'Moeru AI', 'Organização que mantém AIRI e projetos relacionados.'],
+  ['moeru-ai/airi', 'AIRI', 'Referência de assistente com voz, avatar e interação em tempo real.'],
+].map(([id, title, description]) => ({ id, title, description, url: github + id }));

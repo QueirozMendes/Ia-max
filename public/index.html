@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Max · Assistente pessoal</title>
+  <link rel="stylesheet" href="/style.css">
+  <script type="module" src="/app.js"></script>
+</head>
+<body>
+  <aside class="sidebar">
+    <a class="brand" href="/" aria-label="Max, início"><span aria-hidden="true">✦</span> Max</a>
+    <nav aria-label="Painel">
+      <button class="nav active" data-panel="chat" aria-pressed="true">Conversa</button>
+      <button class="nav" data-panel="memory" aria-pressed="false">Memória</button>
+      <button class="nav" data-panel="tasks" aria-pressed="false">Tarefas</button>
+      <button class="nav" data-panel="library" aria-pressed="false">Biblioteca</button>
+    </nav>
+    <a class="webui-link" href="http://127.0.0.1:3000/" target="_blank" rel="noopener noreferrer">Abrir Open WebUI</a>
+    <div id="connection" role="status">Verificando conexão…</div>
+  </aside>
+  <main>
+    <section id="chat" class="panel chat">
+      <header class="chat-header"><h1>Estúdio da Max</h1><button id="new-chat" type="button">Nova conversa</button></header>
+      <div id="presence">
+        <div class="avatar-stage" data-state="idle" data-view="body">
+          <canvas id="max-avatar" width="760" height="760" role="img" aria-label="Max, personagem de anime de cabelo rosa e óculos"></canvas>
+        </div>
+        <div class="avatar-controls" aria-label="Vista da Max">
+          <label>Enquadramento
+            <select id="avatar-view">
+              <option value="auto">A Max escolhe</option>
+              <option value="body">Corpo inteiro</option>
+              <option value="portrait">Rosto</option>
+            </select>
+          </label>
+          <label id="avatar-angle-label">Ângulo
+            <select id="avatar-angle">
+              <option value="auto">Automático</option>
+              <option value="front">Frente</option>
+              <option value="quarterLeft">Três quartos à esquerda</option>
+              <option value="quarter">Três quartos à direita</option>
+              <option value="sideLeft">Perfil esquerdo</option>
+              <option value="side">Perfil direito</option>
+              <option value="back">Costas</option>
+            </select>
+          </label>
+        </div>
+        <div class="presence-copy"><span class="presence-mark" aria-hidden="true">✦</span><strong>Max</strong><span id="presence-status" role="status">Pronta para conversar</span></div>
+        <div class="presence-controls">
+          <button id="mic" type="button" aria-pressed="false">Falar com a Max</button>
+          <button id="greet-max" type="button">Ouvir saudação</button>
+          <label class="toggle"><input type="checkbox" id="voice-mode" checked> Responder em voz alta</label>
+          <label class="toggle"><input type="checkbox" id="continuous-voice"> Continuar ouvindo</label>
+          <button id="camera" type="button" aria-pressed="false">Ligar câmera</button>
+          <button id="camera-frame" type="button" hidden>Compartilhar foto</button>
+        </div>
+        <p id="mic-feedback" role="status" hidden></p>
+        <video id="camera-preview" autoplay playsinline muted hidden aria-label="Prévia da sua câmera"></video>
+      </div>
+      <div id="history" class="history" role="log" aria-label="Mensagens">
+        <div id="welcome" class="welcome">
+          <h2 id="greeting">Oi, eu sou a Max.</h2>
+          <p>O que vamos fazer hoje?</p>
+          <div class="prompts">
+            <button type="button" data-prompt="Me ensine um conceito de programação com um exemplo prático.">Aprender programação</button>
+            <button type="button" data-prompt="Me ajude a escolher até três prioridades para hoje. Use as tarefas pendentes que compartilhei e sugira um primeiro passo para cada prioridade." data-use-tasks>Organizar meu dia</button>
+            <button type="button" data-prompt="">Pesquisar na web</button>
+          </div>
+        </div>
+      </div>
+      <form id="chat-form">
+        <p id="chat-status" class="status" role="status"></p>
+        <label class="sr-only" for="message">Mensagem para Max</label>
+        <textarea id="message" placeholder="Escreva para a Max…" rows="2" maxlength="10000" required></textarea>
+        <div class="composer-tools">
+          <label class="toggle"><input id="codex-mode" type="checkbox"> Programação</label>
+          <label class="toggle"><input id="search" type="checkbox"> Web</label>
+          <label class="toggle"><input id="use-tasks" type="checkbox"> Compartilhar tarefas pendentes</label>
+          <button id="attach" type="button">Anexar texto</button>
+          <input id="file" type="file" hidden>
+          <button id="remove-reference" type="button" hidden></button>
+          <button id="remove-file" type="button" hidden></button>
+          <button class="primary" id="send" type="submit">Enviar ↑</button>
+        </div>
+      </form>
+    </section>
+    <section id="memory" class="panel utility" hidden>
+      <h1>Memória</h1>
+      <p>Registre suas preferências, projetos e objetivos. A Max usa essas informações nas próximas respostas.</p>
+      <p>Na conversa, você também pode escrever <strong>Lembre que</strong> e completar com a informação que quer guardar.</p>
+      <form id="memory-form">
+        <label for="memory-text">O que a Max deve lembrar</label>
+        <textarea id="memory-text" rows="9" maxlength="6000"></textarea>
+        <button class="primary" type="submit">Salvar memória</button>
+        <span id="memory-status" role="status"></span>
+      </form>
+    </section>
+    <section id="tasks" class="panel utility" hidden>
+      <h1>Tarefas</h1>
+      <form id="task-form">
+        <label for="task-text">Nova tarefa</label>
+        <div class="task-entry"><input id="task-text" maxlength="240" required><button class="primary">Adicionar</button></div>
+      </form>
+      <p id="task-status" role="status"></p>
+      <ul id="task-list"></ul>
+    </section>
+    <section id="library" class="panel utility" hidden>
+      <h1>Biblioteca de IA</h1>
+      <p>Selecione um projeto para conversar sobre ele com a Max.</p>
+      <label for="library-filter">Buscar projeto</label>
+      <input id="library-filter" type="search" placeholder="Nome ou assunto">
+      <ul id="library-list"></ul>
+    </section>
+  </main>
+</body>
+</html>
