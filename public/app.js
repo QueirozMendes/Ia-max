@@ -1,3 +1,4 @@
+import { createHearing } from './hearing.js';
 import { createScreenObserver } from './screen-observer.js';
 import { splitSpeech } from './voice.js';
 import { moveMouth, setAvatarState, setVoiceLevel } from './avatar.js';
@@ -27,6 +28,7 @@ let modelConfigured;
 let modelSetupError;
 let remoteCodex = false;
 let expressiveVoice = false;
+let hearingAvailable = false;
 let playback;
 let nextSpokenTurn = false;
 let stopVoiceSession = () => {};
@@ -247,12 +249,13 @@ document.querySelectorAll('[data-panel]').forEach(button => {
   };
 });
 
-fetch('/api/status').then(response => response.json()).then(({ configured, configurationError, owner, provider, providerName, codexAvailable, expressiveVoice: available }) => {
+fetch('/api/status').then(response => response.json()).then(({ configured, configurationError, owner, provider, providerName, codexAvailable, expressiveVoice: available, hearingAvailable: hearingConfigured }) => {
   ownerName = owner;
   modelConfigured = configured;
   modelSetupError = configurationError;
   remoteCodex = codexAvailable === true;
   expressiveVoice = available === true;
+  hearingAvailable = hearingConfigured === true;
   codexMode.parentElement.lastChild.textContent = codexAvailable ? ' Codex · OpenAI' : ' Programação · ' + providerName;
   codexMode.parentElement.title = codexAvailable
     ? 'Envia a pergunta atual e o anexo escolhido ao Codex da OpenAI.'
@@ -541,115 +544,43 @@ function showMicFeedback(text) {
   micFeedback.hidden = !text;
 }
 
-const dictationFallback = 'O reconhecimento contínuo depende do navegador e de suas permissões. O aplicativo desktop terá um mecanismo próprio.';
-if (!SpeechRecognition) {
-  continuousVoice.disabled = true;
-  mic.onclick = () => showMicFeedback(dictationFallback);
-} else {
-  const recognition = new SpeechRecognition();
-  recognition.lang = 'pt-BR';
-  recognition.continuous = true;
-  recognition.interimResults = false;
-  let enabled = false;
-  let running = false;
-  let retry;
-  let debounce;
-  let transcript = '';
-  let failures = 0;
-  function clearTranscript() {
-    clearTimeout(debounce);
-    transcript = '';
-  }
-  function schedule(delay = 500) {
-    clearTimeout(retry);
-    if (enabled && !document.hidden) retry = setTimeout(startListening, delay);
-  }
-  function startListening() {
-    if (!enabled || running || document.hidden) return;
-    try {
-      recognition.start();
-      running = true;
-    } catch { schedule(2000); }
-  }
-  function resetVoiceSession() {
-    enabled = false;
-    clearTimeout(retry);
-    clearTranscript();
-    mic.textContent = 'Ativar microfone contínuo';
-    mic.setAttribute('aria-pressed', 'false');
-  }
-  stopVoiceSession = () => {
-    resetVoiceSession();
-    if (running) { try { recognition.abort(); } catch {} }
-    showMicFeedback('Microfone desativado.');
-  };
-  recognition.onstart = () => {
-    failures = 0;
-    showMicFeedback('Microfone ativo · escuta contínua.');
-  };
-  recognition.onerror = event => {
-    clearTranscript();
-    if (!enabled) return;
-    if (['not-allowed','service-not-allowed','audio-capture','language-not-supported'].includes(event.error)) {
-      stopVoiceSession();
-      showMicFeedback('Microfone indisponível ou sem permissão. ' + dictationFallback);
-    } else if (!['aborted','no-speech'].includes(event.error)) {
-      failures++;
-      if (failures >= 5) { stopVoiceSession(); showMicFeedback('Reconhecimento indisponível. Ative novamente para tentar.'); }
+const hearing = createHearing({
+  status: text => {
+    showMicFeedback(text);
+    mic.textContent = hearing.active() ? 'Desativar microfone' : 'Ativar microfone contínuo';
+    mic.setAttribute('aria-pressed', String(hearing.active()));
+  },
+  playing: () => Boolean(playback),
+  busy: () => pending,
+  onSpeech: () => {
+    lastHumanSpeechAt = Date.now();
+    if (playback) stopSpeaking();
+  },
+  onTranscript: heard => {
+    lastHumanSpeechAt = Date.now();
+    if (pending || syncBusy || !syncReady || message.value.trim() || byId('send').disabled) {
+      showMicFeedback('Fala detectada enquanto a conversa estava ocupada.');
+      return;
     }
-  };
-  recognition.onresult = event => {
-    // Browser preview has no reliable echo separation during playback.
-    if (!enabled || playback || pending || document.hidden) { clearTranscript(); return; }
-    for (let i = event.resultIndex; i < event.results.length; i++) {
-      if (event.results[i].isFinal) { lastHumanSpeechAt = Date.now(); }
-      if (event.results[i].isFinal) transcript = (transcript + ' ' + event.results[i][0].transcript).trim().slice(0, 10000);
+    message.value = heard;
+    if (voiceMode.checked) {
+      nextSpokenTurn = true;
+      byId('chat-form').requestSubmit();
     }
-    clearTimeout(debounce);
-    if (!transcript) return;
-    debounce = setTimeout(() => {
-      const heard = transcript;
-      clearTranscript();
-      if (!enabled || playback || pending || syncBusy || !syncReady || document.hidden || !heard) return;
-      if (message.value.trim() || byId('chat').hidden || byId('send').disabled) {
-        showMicFeedback('Fala reconhecida; envio automático pausado enquanto você usa outro painel ou escreve.');
-        return;
-      }
-      message.value = heard;
-      if (voiceMode.checked) {
-        nextSpokenTurn = true;
-        byId('chat-form').requestSubmit();
-      }
-      if (!continuousVoice.checked) stopVoiceSession();
-    }, 650);
-  };
-  recognition.onend = () => {
-    running = false;
-    if (enabled) schedule(Math.min(10000, 500 * (failures + 1)));
-  };
-  continueVoiceSession = () => { if (enabled) schedule(); };
-  continuousVoice.onchange = () => {
     if (!continuousVoice.checked) stopVoiceSession();
-  };
-  document.addEventListener('visibilitychange', () => {
-    if (!enabled) return;
-    if (document.hidden) {
-      clearTranscript();
-      clearTimeout(retry);
-      if (running) try { recognition.abort(); } catch {}
-      showMicFeedback('Escuta do navegador suspensa em segundo plano.');
-    } else schedule();
-  });
-  window.addEventListener('pagehide', stopVoiceSession);
-  mic.onclick = () => {
-    if (enabled) return stopVoiceSession();
-    if (!window.confirm('Ativar escuta? O serviço de voz do navegador pode processar áudio externamente. Falas reconhecidas na conversa poderão ser enviadas ao modelo configurado. Avise outras pessoas próximas e desative o microfone quando precisar de privacidade.')) return;
-    enabled = true;
-    mic.textContent = 'Desativar microfone';
-    mic.setAttribute('aria-pressed', 'true');
-    startListening();
-  };
-}
+  }
+});
+stopVoiceSession = () => hearing.stop();
+continueVoiceSession = () => {};
+mic.onclick = async () => {
+  if (hearing.active()) return stopVoiceSession();
+  if (!hearingAvailable) return showMicFeedback('Configure OPENAI_API_KEY para transcrição de áudio.');
+  if (!confirm('Ativar microfone contínuo? Trechos detectados como fala são enviados à OpenAI para transcrição. Não há gravação permanente no Max Core. Avise outras pessoas próximas e pause quando precisar de privacidade.')) return;
+  await hearing.start();
+  mic.textContent = hearing.active() ? 'Desativar microfone' : 'Ativar microfone contínuo';
+  mic.setAttribute('aria-pressed', String(hearing.active()));
+};
+continuousVoice.onchange = () => { if (!continuousVoice.checked) stopVoiceSession(); };
 
 byId('chat-form').onsubmit = async event => {
   event.preventDefault();
@@ -727,7 +658,6 @@ byId('chat-form').onsubmit = async event => {
     renderConversation();
     if (voiceMode.checked) speak(result.answer, undefined, undefined, spokenTurn ? continueVoiceSession : undefined);
   } catch (error) {
-    if (spokenTurn) stopVoiceSession();
     status.textContent = error instanceof TypeError ? 'Não consegui conectar ao servidor da Max.' : error.message;
   } finally {
     pending = false;
