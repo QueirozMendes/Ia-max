@@ -839,24 +839,25 @@ renderLibrary();
 if (window.maxDeveloper) {
   const dev=window.maxDeveloper, panel=byId('developer-panel'), feedback=byId('developer-status'), files=byId('developer-files'), review=byId('developer-review'), apply=byId('developer-apply');
   const choose=byId('developer-choose'), propose=byId('developer-propose'), revoke=byId('developer-revoke');
+  const testFiles=byId('developer-tests'), runTests=byId('developer-run-tests'), testOutput=byId('developer-test-output');
   let working=false, epoch=0;
   panel.hidden=false;
   async function perform(fn){
     if(working)return;
-    working=true;choose.disabled=propose.disabled=true;apply.disabled=true;
+    working=true;choose.disabled=propose.disabled=true;apply.disabled=true;runTests.disabled=true;
     const current=epoch;
     try{await fn(current);}
     catch(error){if(current===epoch)feedback.textContent=error.message||'Operação não concluída.';}
-    finally{working=false;choose.disabled=propose.disabled=false;}
+    finally{working=false;choose.disabled=propose.disabled=false;runTests.disabled=!testFiles.options.length;}
   }
   choose.onclick=()=>perform(async current=>{
     const result=await dev.choose();
     if(!result||current!==epoch)return;
     files.replaceChildren(...result.files.map(path=>{const option=document.createElement('option');option.value=path;option.textContent=path;return option;}));
-    review.textContent='';feedback.textContent=result.root;
+    review.textContent='';testFiles.replaceChildren();testOutput.textContent='';feedback.textContent=result.root;
   });
   revoke.onclick=async()=>{
-    epoch++;apply.disabled=true;files.replaceChildren();review.textContent='';
+    epoch++;apply.disabled=true;runTests.disabled=true;testFiles.replaceChildren();testOutput.textContent='';files.replaceChildren();review.textContent='';
     await dev.revoke();feedback.textContent='Acesso revogado.';
   };
   propose.onclick=()=>perform(async current=>{
@@ -872,6 +873,16 @@ if (window.maxDeveloper) {
     const result=await dev.apply();
     if(current!==epoch)return;
     review.textContent='Branch: '+result.branch+'\nPasta: '+result.directory+'\nSintaxe: '+(result.syntax.map(r=>r.path+': '+(r.ok?'OK':'FALHOU')).join(', ')||'Nenhum JavaScript verificado')+'\n\n'+result.diff;
+    testFiles.replaceChildren(...result.tests.map(path=>{const option=document.createElement('option');option.value=path;option.textContent=path;return option;}));
+    testOutput.textContent='';
     feedback.textContent='Alterações locais prontas para revisão. Nenhum commit ou push realizado.';
+  });
+  runTests.onclick=()=>perform(async current=>{
+    const paths=Array.from(testFiles.selectedOptions,o=>o.value);
+    feedback.textContent='Executando testes autorizados...';
+    const result=await dev.test(paths);
+    if(current!==epoch)return;
+    testOutput.textContent=result.output;
+    feedback.textContent=result.ok?'Testes selecionados passaram.':'Testes falharam ou não puderam executar.';
   });
 }
