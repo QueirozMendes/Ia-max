@@ -1,4 +1,4 @@
-import { moveMouth, setAvatarState } from './avatar.js';
+import { moveMouth, setAvatarState, setVoiceLevel } from './avatar.js';
 import { library } from './library.js';
 
 const byId = id => document.getElementById(id);
@@ -203,6 +203,35 @@ fetch('/api/status').then(response => response.json()).then(({ configured, confi
   byId('connection').textContent = 'Servidor indisponível';
 });
 
+async function connectLipSync(active) {
+  const AudioEngine = window.AudioContext || window.webkitAudioContext;
+  if (!AudioEngine || !active.audio) return;
+  let context;
+  try {
+    context = new AudioEngine();
+    active.audioContext = context;
+    await context.resume();
+    if (playback !== active) { await context.close().catch(() => {}); return; }
+    const analyser = context.createAnalyser();
+    analyser.fftSize = 512;
+    const source = context.createMediaElementSource(active.audio);
+    source.connect(analyser);
+    analyser.connect(context.destination);
+    const samples = new Float32Array(analyser.fftSize);
+    const update = () => {
+      if (playback !== active) return;
+      analyser.getFloatTimeDomainData(samples);
+      const rms = Math.sqrt(samples.reduce((sum, value) => sum + value * value, 0) / samples.length);
+      setVoiceLevel(active.audio.paused ? 0 : Math.min(1, Math.max(0, (rms - .012) * 7)));
+      active.lipFrame = requestAnimationFrame(update);
+    };
+    update();
+  } catch {
+    if (playback === active) setVoiceLevel(null);
+    if (context && context.state !== 'closed') await context.close().catch(() => {});
+  }
+}
+
 function stopSpeaking() {
   const active = playback;
   if (!active) return;
@@ -210,6 +239,9 @@ function stopSpeaking() {
   active.controller.abort();
   clearTimeout(active.timeout);
   active.audio?.pause();
+  cancelAnimationFrame(active.lipFrame);
+  active.audioContext?.close().catch(() => {});
+  setVoiceLevel(null);
   if (active.url) URL.revokeObjectURL(active.url);
   window.speechSynthesis?.cancel();
   if (active.button) active.button.textContent = active.label;
@@ -256,6 +288,7 @@ async function speak(text, button, label = 'Ouvir', onDone) {
       active.audio.onended = () => finishSpeaking(active);
       active.audio.onerror = () => { if (playback === active) stopSpeaking(); };
       await active.audio.play();
+      if (playback === active) void connectLipSync(active);
       return;
     } catch {
       if (playback !== active) return;
