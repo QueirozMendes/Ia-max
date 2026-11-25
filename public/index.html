@@ -119,6 +119,8 @@
     <section id="brain" class="panel utility" hidden>
       <h1>Max Second Brain</h1>
       <p>Seu mapa de conhecimentos. Somente notas autorizadas e relevantes entram no contexto das conversas.</p>
+      <label><input type="checkbox" id="living-memory-enabled"> Sugerir lembranças a partir das minhas mensagens (OpenAI)</label>
+      <p id="living-memory-status" role="status"></p><div id="living-memory-suggestions"></div>
       <div class="brain-tools"><strong id="brain-count">0 notas</strong><button id="brain-add" type="button">+ Nova nota</button><button id="brain-refresh" type="button">Sincronizar</button><label>Área <select id="brain-filter"><option value="">Todas</option></select></label></div>
       <div id="brain-graph"></div><p id="brain-status" role="status"></p>
       <form id="brain-editor" hidden>
