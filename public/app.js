@@ -1,3 +1,4 @@
+import { decideInitiative } from './initiative.js';
 import { createHearing } from './hearing.js';
 import { createScreenObserver } from './screen-observer.js';
 import { splitSpeech } from './voice.js';
@@ -167,13 +168,54 @@ async function initializeMemory() {
 }
 const memoryInitialization = initializeMemory();
 let lastScreenCommentAt = 0;
-let lastHumanSpeechAt = 0;
+let lastHumanSpeechAt = Date.now();
+let lastInteractionAt = Date.now();
+let lastInitiativeAt = Date.now();
+let lastInitiativeComment = '';
+let unansweredInitiatives = 0;
+let initiativeRequest;
+const initiativeToggle = byId('initiative-enabled');
+const initiativeStatus = byId('initiative-status');
+function noteInteraction() {
+  lastInteractionAt = Date.now();
+  unansweredInitiatives = 0;
+  initiativeRequest?.abort();
+}
+for (const event of ['pointerdown','keydown']) document.addEventListener(event,noteInteraction,{passive:true});
+initiativeToggle.onchange = () => {
+  if (initiativeToggle.checked && !confirm('Permitir conversas espontâneas? A Max poderá usar trechos recentes da conversa com o modelo OpenAI para iniciar um assunto.')) initiativeToggle.checked = false;
+  lastInitiativeAt = Date.now();
+  unansweredInitiatives = 0;
+  if (!initiativeToggle.checked) initiativeRequest?.abort();
+  initiativeStatus.textContent = initiativeToggle.checked ? 'Iniciativa ativa.' : 'Iniciativa desativada.';
+};
+async function tickInitiative() {
+  if (!supportsVision || !syncReady || initiativeRequest || document.hidden || !voiceMode.checked) return;
+  const now = Date.now();
+  const kind = decideInitiative({enabled:initiativeToggle.checked,quiet:!voiceMode.checked,speaking:Boolean(playback),userSpeaking:now-lastHumanSpeechAt<15000,busy:pending||syncBusy||Boolean(message.value.trim()),lastSpeechAt:Math.max(lastHumanSpeechAt,lastInitiativeAt,lastScreenCommentAt),lastActivityAt:lastInteractionAt,unanswered:unansweredInitiatives,screenConsent:false},now);
+  if (!kind) return;
+  const controller = new AbortController(); initiativeRequest = controller;
+  lastInitiativeAt = now;
+  try {
+    const response = await fetch('/api/initiative',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({kind,previous:lastInitiativeComment}),signal:controller.signal});
+    if (!response.ok) throw Error('Iniciativa indisponível');
+    const result = await response.json();
+    if (controller.signal.aborted || !initiativeToggle.checked || !voiceMode.checked || pending || playback || document.hidden || !result.comment) return;
+    lastInitiativeComment = result.comment;
+    unansweredInitiatives++;
+    initiativeStatus.textContent = 'Max: ' + result.comment;
+    void speak(result.comment);
+  } catch { if (!controller.signal.aborted) initiativeStatus.textContent = 'Iniciativa temporariamente indisponível.'; }
+  finally { if (initiativeRequest === controller) initiativeRequest = undefined; }
+}
+setInterval(tickInitiative,30000);
+window.addEventListener('pagehide',()=>initiativeRequest?.abort());
 const screenObserver = createScreenObserver({
   button: byId('screen-observe'),
   automatic: byId('screen-auto'),
   status: byId('screen-status'),
   available: () => supportsVision,
-  busy: () => pending || Boolean(playback) || Boolean(message.value.trim()) || Date.now() - lastScreenCommentAt < 180000 || Date.now() - lastHumanSpeechAt < 15000,
+  busy: () => pending || Boolean(initiativeRequest) || Boolean(playback) || Boolean(message.value.trim()) || Date.now() - lastScreenCommentAt < 180000 || Date.now() - lastHumanSpeechAt < 15000,
   onComment: comment => {
     lastScreenCommentAt = Date.now();
     byId('screen-status').textContent = 'Max: ' + comment;
@@ -554,6 +596,7 @@ const hearing = createHearing({
   busy: () => pending,
   onSpeech: () => {
     lastHumanSpeechAt = Date.now();
+    noteInteraction();
     if (playback) stopSpeaking();
   },
   onTranscript: heard => {
@@ -584,6 +627,7 @@ continuousVoice.onchange = () => { if (!continuousVoice.checked) stopVoiceSessio
 
 byId('chat-form').onsubmit = async event => {
   event.preventDefault();
+  noteInteraction();
   const spokenTurn = nextSpokenTurn;
   nextSpokenTurn = false;
   const content = message.value.trim();
