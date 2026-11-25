@@ -91,8 +91,11 @@
       <p>Na conversa, você também pode escrever <strong>Lembre que</strong> e completar com a informação que quer guardar.</p>
       <form id="memory-form">
         <label for="memory-text">O que a Max deve lembrar</label>
-        <textarea id="memory-text" rows="9" maxlength="6000"></textarea>
+        <textarea id="memory-text" rows="9" maxlength="60000"></textarea>
         <button class="primary" type="submit">Salvar memória</button>
+        <button id="memory-export" type="button">Exportar memória</button>
+        <button id="memory-clear" type="button">Apagar memória</button>
+        <p>As lembranças ficam no computador e trechos podem ser enviados ao modelo selecionado durante a conversa. Não guarde senhas ou chaves de API.</p>
         <span id="memory-status" role="status"></span>
       </form>
     </section>
