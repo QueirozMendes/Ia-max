@@ -795,6 +795,9 @@ renderTasks();
 void initializeSync();
 setInterval(refreshSync, 5000);
 document.addEventListener('visibilitychange', refreshSync);
+window.addEventListener('online',()=>{if(syncReady)void refreshSync();else if(!syncBusy)void initializeSync();});
+// Mobile browsers cannot guarantee background microphone capture.
+document.addEventListener('visibilitychange',()=>{if(document.hidden && !window.maxDeveloper){stopVoiceSession();screenObserver.stop();}});
 
 const removeReference = byId('remove-reference');
 function setReference(project) {
