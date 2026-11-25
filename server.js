@@ -1,3 +1,4 @@
+import { localConfig, createLocalBrain } from './lib/local-brain.js';
 import { chooseBrain, brainOptions } from './lib/brain-router.js';
 import { askClaude } from './lib/claude.js';
 import { createServer } from 'node:http';
@@ -50,6 +51,7 @@ const localPort = Number(ollama ? process.env.OLLAMA_PORT || 11434 : process.env
 if (local && (!Number.isInteger(localPort) || localPort < 1 || localPort > 65535 || localPort === port)) {
   throw new Error('A porta do provedor local deve ser válida e diferente de PORT.');
 }
+const localBrain = ollama ? createLocalBrain({port:localPort,config:localConfig()}) : null;
 const liveRoot = fileURLToPath(new URL('./.runtime/live2d/', import.meta.url));
 const liveTypes = { '.js': 'text/javascript', '.json': 'application/json', '.moc3': 'application/octet-stream', '.png': 'image/png', '.jpg': 'image/jpeg', '.webp': 'image/webp', '.wav': 'audio/wav', '.mp3': 'audio/mpeg' };
 let lastObservation = 0;
@@ -132,6 +134,10 @@ createServer(async (req, res) => {
     }
   }
 
+  if(req.method==='GET'&&req.url==='/api/local-brain'){
+    if(req.headers['sec-fetch-site']&&req.headers['sec-fetch-site']!=='same-origin')return respond(res,403,{error:'Origem inválida.'});
+    return respond(res,200,localBrain?await localBrain.status():{enabled:false,ready:false});
+  }
   if (req.method === 'GET' && req.url === '/api/status') {
     return respond(res, 200, { configured: !configurationError, configurationError, expressiveVoice, voiceProvider, voiceConfigured: expressiveVoice, hearingAvailable: Boolean(key), codexAvailable: brainMode !== 'auto' && Boolean(key), owner, provider, providerName, brainMode, brainOptions: brainMode==='auto'?brainOptions({allowCloud,keys:brainKeys}):[] });
   }
@@ -379,6 +385,12 @@ createServer(async (req, res) => {
       if(search===true)return respond(res,400,{error:'A busca web integrada está disponível no modo OpenAI.'});
       const result=await askClaude({key:anthropicKey,model:anthropicModel,instructions,input});
       if(result.error)return respond(res,502,{error:result.error});
+      return respond(res,200,{...result,sources:project?[{url:project.url,title:project.title}]:[]});
+    }
+    if(ollama&&!useCodex){
+      if(search===true)return respond(res,400,{error:'Pesquisa local ainda não configurada.'});
+      const result=await localBrain.chat({instructions,input,spoken:spokenTurn===true});
+      if(result.error)return respond(res,result.status,{error:result.error});
       return respond(res,200,{...result,sources:project?[{url:project.url,title:project.title}]:[]});
     }
     if ((local || router) && !useCodex) {
