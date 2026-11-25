@@ -223,7 +223,6 @@ async function refreshSync() {
 
 document.querySelectorAll('[data-panel]').forEach(button => {
   button.onclick = () => {
-    if (button.dataset.panel !== 'chat') stopVoiceSession();
     document.querySelectorAll('[data-panel]').forEach(item => {
       const selected = item === button;
       item.classList.toggle('active', selected);
@@ -469,7 +468,6 @@ byId('new-chat').onclick = async () => {
   catch (error) { status.textContent = error.message; return; }
   finally { syncBusy = false; }
   status.textContent = '';
-  stopVoiceSession();
   stopSpeaking();
   setPresence('idle', 'Pronta para conversar');
   clearAttachment();
@@ -528,119 +526,111 @@ function showMicFeedback(text) {
   micFeedback.hidden = !text;
 }
 
-const dictationFallback = 'Você também pode clicar no campo de mensagem e usar o Ditado do macOS pelo atalho configurado em Ajustes do Sistema → Teclado.';
+const dictationFallback = 'O reconhecimento contínuo depende do navegador e de suas permissões. O aplicativo desktop terá um mecanismo próprio.';
 if (!SpeechRecognition) {
   continuousVoice.disabled = true;
-  mic.onclick = () => {
-    showMicFeedback('Este navegador não oferece reconhecimento de voz. ' + dictationFallback);
-    message.focus();
-  };
+  mic.onclick = () => showMicFeedback(dictationFallback);
 } else {
   const recognition = new SpeechRecognition();
   recognition.lang = 'pt-BR';
-  let listening = false;
+  recognition.continuous = true;
+  recognition.interimResults = false;
+  let enabled = false;
+  let running = false;
+  let retry;
+  let debounce;
   let transcript = '';
-  let failed = false;
-  let voiceSession = false;
-  let discard = false;
-  const errors = {
-    'not-allowed': 'O navegador bloqueou o microfone. Permita o acesso nas configurações do site e tente novamente.',
-    'service-not-allowed': 'Este navegador bloqueou o serviço de ditado. ' + dictationFallback,
-    'audio-capture': 'Não consegui acessar o microfone. Confira o dispositivo de entrada nos ajustes do Mac.',
-    'no-speech': 'Não detectei fala. Clique em Falar com a Max e tente novamente.',
-    network: 'O serviço de ditado do navegador não respondeu. ' + dictationFallback,
-    'language-not-supported': 'O navegador não oferece ditado em português nesta configuração. ' + dictationFallback,
-  };
-  recognition.onstart = () => {
-    showMicFeedback('Microfone ativo. Fale agora.');
-    setPresence('listening', 'Escutando');
-  };
-  recognition.onerror = event => {
-    if (discard) return;
-    failed = true;
-    showMicFeedback(errors[event.error] || 'O ditado foi interrompido. ' + dictationFallback);
-  };
-  recognition.onresult = event => {
-    transcript = event.results[0][0].transcript.trim();
-  };
-  recognition.onend = () => {
-    listening = false;
-    if (!pending) setPresence('idle', 'Pronta para conversar');
-    if (discard || failed || !transcript) {
-      resetVoiceSession();
-      if (discard) return;
-      if (!failed) showMicFeedback('Nenhuma fala reconhecida. Tente falar novamente. ' + dictationFallback);
-      return;
-    }
-    message.value = (message.value + ' ' + transcript).trim().slice(0, 10_000);
-    message.focus();
-    if (modelConfigured === false && !(remoteCodex && codexMode.checked)) {
-      resetVoiceSession();
-      showMicFeedback('Ouvi: “' + transcript + '”. O microfone funcionou. ' + modelSetupError);
-      return;
-    }
-    showMicFeedback('Ouvi: “' + transcript + '”.');
-    if (!voiceSession) resetVoiceSession();
-    if (voiceMode.checked && !byId('send').disabled) {
-      nextSpokenTurn = true;
-      byId('chat-form').requestSubmit();
-    } else {
-      resetVoiceSession();
-    }
-  };
+  let failures = 0;
+  function clearTranscript() {
+    clearTimeout(debounce);
+    transcript = '';
+  }
+  function schedule(delay = 500) {
+    clearTimeout(retry);
+    if (enabled && !document.hidden) retry = setTimeout(startListening, delay);
+  }
+  function startListening() {
+    if (!enabled || running || document.hidden) return;
+    try {
+      recognition.start();
+      running = true;
+    } catch { schedule(2000); }
+  }
   function resetVoiceSession() {
-    voiceSession = false;
-    mic.textContent = 'Falar com a Max';
+    enabled = false;
+    clearTimeout(retry);
+    clearTranscript();
+    mic.textContent = 'Ativar microfone contínuo';
     mic.setAttribute('aria-pressed', 'false');
   }
   stopVoiceSession = () => {
     resetVoiceSession();
-    if (listening) {
-      discard = true;
-      recognition.abort();
+    if (running) { try { recognition.abort(); } catch {} }
+    showMicFeedback('Microfone desativado.');
+  };
+  recognition.onstart = () => {
+    failures = 0;
+    showMicFeedback('Microfone ativo · escuta contínua.');
+  };
+  recognition.onerror = event => {
+    clearTranscript();
+    if (!enabled) return;
+    if (['not-allowed','service-not-allowed','audio-capture','language-not-supported'].includes(event.error)) {
+      stopVoiceSession();
+      showMicFeedback('Microfone indisponível ou sem permissão. ' + dictationFallback);
+    } else if (!['aborted','no-speech'].includes(event.error)) {
+      failures++;
+      if (failures >= 5) { stopVoiceSession(); showMicFeedback('Reconhecimento indisponível. Ative novamente para tentar.'); }
     }
   };
-  function startListening() {
-    try {
-      transcript = '';
-      failed = false;
-      discard = false;
-      recognition.start();
-      listening = true;
-      mic.textContent = continuousVoice.checked ? 'Encerrar conversa por voz' : 'Parar de escutar';
-      mic.setAttribute('aria-pressed', 'true');
-      showMicFeedback('Abrindo o microfone…');
-    } catch {
-      resetVoiceSession();
-      showMicFeedback('Não consegui iniciar o ditado. ' + dictationFallback);
+  recognition.onresult = event => {
+    // Browser preview has no reliable echo separation during playback.
+    if (!enabled || playback || pending || document.hidden) { clearTranscript(); return; }
+    for (let i = event.resultIndex; i < event.results.length; i++) {
+      if (event.results[i].isFinal) transcript = (transcript + ' ' + event.results[i][0].transcript).trim().slice(0, 10000);
     }
-  }
-  continueVoiceSession = () => {
-    if (voiceSession && continuousVoice.checked && voiceMode.checked && !document.hidden && !byId('chat').hidden) {
-      startListening();
-    } else {
-      resetVoiceSession();
-    }
+    clearTimeout(debounce);
+    if (!transcript) return;
+    debounce = setTimeout(() => {
+      const heard = transcript;
+      clearTranscript();
+      if (!enabled || playback || pending || syncBusy || !syncReady || document.hidden || !heard) return;
+      if (message.value.trim() || byId('chat').hidden || byId('send').disabled) {
+        showMicFeedback('Fala reconhecida; envio automático pausado enquanto você usa outro painel ou escreve.');
+        return;
+      }
+      message.value = heard;
+      if (voiceMode.checked) {
+        nextSpokenTurn = true;
+        byId('chat-form').requestSubmit();
+      }
+      if (!continuousVoice.checked) stopVoiceSession();
+    }, 650);
   };
+  recognition.onend = () => {
+    running = false;
+    if (enabled) schedule(Math.min(10000, 500 * (failures + 1)));
+  };
+  continueVoiceSession = () => { if (enabled) schedule(); };
   continuousVoice.onchange = () => {
-    if (!continuousVoice.checked && voiceSession) stopVoiceSession();
-  };
-  voiceMode.onchange = () => {
-    if (!voiceMode.checked && voiceSession) stopVoiceSession();
+    if (!continuousVoice.checked) stopVoiceSession();
   };
   document.addEventListener('visibilitychange', () => {
-    if (document.hidden && voiceSession) stopVoiceSession();
+    if (!enabled) return;
+    if (document.hidden) {
+      clearTranscript();
+      clearTimeout(retry);
+      if (running) try { recognition.abort(); } catch {}
+      showMicFeedback('Escuta do navegador suspensa em segundo plano.');
+    } else schedule();
   });
+  window.addEventListener('pagehide', stopVoiceSession);
   mic.onclick = () => {
-    if (voiceSession) {
-      stopVoiceSession();
-      showMicFeedback('Conversa por voz encerrada.');
-      return;
-    }
-    if (listening) return recognition.stop();
-    if (pending) return showMicFeedback('Aguarde a resposta atual para falar novamente.');
-    stopSpeaking();
-    voiceSession = continuousVoice.checked && voiceMode.checked;
+    if (enabled) return stopVoiceSession();
+    if (!window.confirm('Ativar escuta? O serviço de voz do navegador pode processar áudio externamente. Falas reconhecidas na conversa poderão ser enviadas ao modelo configurado. Avise outras pessoas próximas e desative o microfone quando precisar de privacidade.')) return;
+    enabled = true;
+    mic.textContent = 'Desativar microfone';
+    mic.setAttribute('aria-pressed', 'true');
     startListening();
   };
 }
@@ -656,7 +646,6 @@ byId('chat-form').onsubmit = async event => {
   if (pending || memoryBusy || syncBusy || !syncReady) { status.textContent = 'Aguarde a sincronização com o Max Core.'; return; }
   const memoryRequest = content.match(/^lembre\s+que(?:\s+([\s\S]+))?$/i);
   if (memoryRequest) {
-    if (spokenTurn) stopVoiceSession();
     const note = memoryRequest[1]?.trim();
     if (!note) {
       status.textContent = 'Escreva o que você quer guardar depois de “Lembre que”.';
@@ -721,7 +710,6 @@ byId('chat-form').onsubmit = async event => {
     codexMode.checked = false;
     renderConversation();
     if (voiceMode.checked) speak(result.answer, undefined, undefined, spokenTurn ? continueVoiceSession : undefined);
-    else if (spokenTurn) stopVoiceSession();
   } catch (error) {
     if (spokenTurn) stopVoiceSession();
     status.textContent = error instanceof TypeError ? 'Não consegui conectar ao servidor da Max.' : error.message;
