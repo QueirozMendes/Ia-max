@@ -62,6 +62,12 @@ const eyes = [
 ];
 let state = 'idle';
 let mouthUntil = 0;
+let voiceLevel = null;
+let mouthShape = 0;
+let smoothTilt = 0;
+export function setVoiceLevel(value) {
+  voiceLevel = Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : null;
+}
 let nextBlink = performance.now() + 2200;
 
 export function setAvatarState(next) {
@@ -69,6 +75,7 @@ export function setAvatarState(next) {
   state = next;
   stage.dataset.state = next;
   if (next === 'speaking') moveMouth();
+  else { voiceLevel = null; mouthUntil = 0; }
 }
 
 export function moveMouth() {
@@ -173,7 +180,7 @@ function draw(time) {
   if (!canvas.getClientRects().length) return;
   const still = reduced.matches;
   const phase = Math.max(0, time - stateStartedAt);
-  const dt = Math.min(50, time - previousFrame);
+  const dt = Math.max(0, Math.min(50, time - previousFrame));
   previousFrame = time;
   const ambientLook = state === 'idle' ? Math.sin(phase / 1300) * .55 : 0;
   gaze.x += ((still ? 0 : target.x * .75 + ambientLook) - gaze.x) * .095;
@@ -182,9 +189,12 @@ function draw(time) {
   const blink = !still && time >= nextBlink ? Math.sin((time - nextBlink) / 170 * Math.PI) : 0;
   const breath = still ? 0 : Math.sin(time / 880);
   const tilt = state === 'listening' ? -.026 : state === 'thinking' ? .021 : 0;
-  const mouth = state === 'speaking'
-    ? (time < mouthUntil ? .3 + .7 * Math.abs(Math.sin(time / 65)) : .5 * Math.max(0, Math.sin(time / 90)))
+  smoothTilt += (tilt - smoothTilt) * (1 - Math.exp(-dt / 220));
+  const targetMouth = state === 'speaking'
+    ? (voiceLevel !== null ? voiceLevel : time < mouthUntil ? .3 + .7 * Math.abs(Math.sin(time / 65)) : .35 * Math.max(0, Math.sin(time / 90)))
     : 0;
+  mouthShape += (targetMouth - mouthShape) * (1 - Math.exp(-dt / (targetMouth > mouthShape ? 35 : 90)));
+  const mouth = mouthShape;
 
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   const automaticCloseUp = angle.value === 'auto' &&
@@ -197,7 +207,7 @@ function draw(time) {
 
   if (sprites.dataset.ready && framing < .995) {
     const idleIndex = Math.floor(phase / 3000) % idlePoses.length;
-    const automaticPose = state === 'idle' && !still ? idlePoses[idleIndex] : gesture > .25 ? 'quarter' : 'front';
+    const automaticPose = state === 'idle' && !still ? idlePoses[idleIndex] : gesture > .25 && voiceLevel === null ? 'quarter' : 'front';
     changePose(angle.value === 'auto' ? automaticPose : angle.value, time);
     const progress = still ? 1 : Math.min(1, (time - poseChangedAt) / 220);
     drawBody(poses[previousPose], time, breath, blink, mouth, (1 - progress) * (1 - framing), still, gesture);
@@ -208,7 +218,7 @@ function draw(time) {
   ctx.globalAlpha = framing;
   ctx.scale(canvas.width / 1254, canvas.height / 1254);
   ctx.translate(627 + gaze.x * 17, 750 + breath * 9);
-  ctx.rotate(still ? 0 : tilt + gaze.x * .028 + breath * .011);
+  ctx.rotate(still ? 0 : smoothTilt + gaze.x * .028 + breath * .011);
   ctx.translate(-627, -750);
   ctx.drawImage(portrait, 0, 10, 1254, 1254);
   ctx.translate(0, 10);
