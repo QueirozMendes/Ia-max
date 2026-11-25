@@ -41,6 +41,8 @@ if (local && (!Number.isInteger(localPort) || localPort < 1 || localPort > 65535
 const liveRoot = fileURLToPath(new URL('./.runtime/live2d/', import.meta.url));
 const liveTypes = { '.js': 'text/javascript', '.json': 'application/json', '.moc3': 'application/octet-stream', '.png': 'image/png', '.jpg': 'image/jpeg', '.webp': 'image/webp', '.wav': 'audio/wav', '.mp3': 'audio/mpeg' };
 const assets = new Map([
+  ['/companion.html', ['companion.html', 'text/html']],
+  ['/companion.css', ['companion.css', 'text/css']],
   ['/voice.js', ['voice.js', 'text/javascript']],
   ['/live2d.js', ['live2d.js', 'text/javascript']],
   ['/max-turnaround.png', ['max-turnaround.png', 'image/png']],
