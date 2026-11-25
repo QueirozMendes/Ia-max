@@ -24,7 +24,11 @@ const configurationError = router
   ? (!routerKey ? 'Preencha OPENROUTER_API_KEY no arquivo .env e reinicie a Max.'
     : !process.env.OPENROUTER_MODEL ? 'Defina OPENROUTER_MODEL no arquivo .env e reinicie a Max.' : '')
   : (!local && !key ? 'Preencha OPENAI_API_KEY no arquivo .env e reinicie a Max, ou selecione um modelo local.' : '');
-const expressiveVoice = Boolean(key) && provider === 'openai' && process.env.MAX_VOICE !== 'browser';
+const voiceProvider = process.env.MAX_VOICE || 'elevenlabs';
+const elevenKey = process.env.ELEVENLABS_API_KEY;
+const elevenVoice = process.env.ELEVENLABS_VOICE_ID || 'GDzHdQOi6jjf8zaXhCYD';
+const elevenModel = process.env.ELEVENLABS_MODEL || 'eleven_multilingual_v2';
+const expressiveVoice = voiceProvider === 'elevenlabs' ? Boolean(elevenKey) : voiceProvider === 'openai' && Boolean(key);
 const localPort = Number(ollama ? process.env.OLLAMA_PORT || 11434 : process.env.LLAMA_PORT || 8080);
 if (local && (!Number.isInteger(localPort) || localPort < 1 || localPort > 65535 || localPort === port)) {
   throw new Error('A porta do provedor local deve ser válida e diferente de PORT.');
@@ -86,7 +90,7 @@ createServer(async (req, res) => {
   }
 
   if (req.method === 'GET' && req.url === '/api/status') {
-    return respond(res, 200, { configured: !configurationError, configurationError, expressiveVoice, codexAvailable: Boolean(key), owner, provider, providerName });
+    return respond(res, 200, { configured: !configurationError, configurationError, expressiveVoice, voiceProvider, voiceConfigured: expressiveVoice, codexAvailable: Boolean(key), owner, provider, providerName });
   }
   if (req.method === 'GET' && req.url === '/api/memory') {
     if (req.headers['sec-fetch-site'] && req.headers['sec-fetch-site'] !== 'same-origin') return respond(res, 403, { error: 'Origem inválida.' });
@@ -130,6 +134,24 @@ createServer(async (req, res) => {
     const input = typeof body?.text === 'string' ? body.text.trim() : '';
     if (!input || input.length > 2400) return respond(res, 400, { error: 'Envie até 2.400 caracteres para falar.' });
     try {
+      if (voiceProvider === 'elevenlabs') {
+        const upstream = await fetch('https://api.elevenlabs.io/v1/text-to-speech/' + encodeURIComponent(elevenVoice) + '?output_format=mp3_44100_128', {
+          method: 'POST',
+          headers: { 'xi-api-key': elevenKey, 'Content-Type': 'application/json', Accept: 'audio/mpeg' },
+          signal: AbortSignal.timeout(30000),
+          body: JSON.stringify({
+            text: input, model_id: elevenModel,
+            voice_settings: { stability: 0.45, similarity_boost: 0.75, style: 0, speed: 1, use_speaker_boost: true },
+          }),
+        });
+        if (!upstream.ok) {
+          console.error('ElevenLabs HTTP', upstream.status);
+          return respond(res, 502, { error: 'ElevenLabs recusou a geração. Confira chave, créditos e acesso à voz.' });
+        }
+        const bytes = Buffer.from(await upstream.arrayBuffer());
+        res.writeHead(200, { 'Content-Type': 'audio/mpeg' });
+        return res.end(bytes);
+      }
       const upstream = await fetch('https://api.openai.com/v1/audio/speech', {
         method: 'POST',
         headers: { Authorization: 'Bearer ' + key, 'Content-Type': 'application/json' },
