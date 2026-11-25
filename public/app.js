@@ -24,6 +24,7 @@ const frameButton = byId('camera-frame');
 const voiceMode = byId('voice-mode');
 voiceMode.disabled = !window.speechSynthesis;
 let supportsVision = false;
+let supportsCameraAnalysis = false;
 let ownerName = 'Gabriel';
 let modelConfigured;
 let modelSetupError;
@@ -64,7 +65,7 @@ camera.onclick = async () => {
     cameraStream.getVideoTracks().forEach(track => track.addEventListener('ended', stopCamera));
     preview.srcObject = cameraStream;
     preview.hidden = false;
-    frameButton.hidden = !supportsVision;
+    frameButton.hidden = !supportsCameraAnalysis;
     camera.textContent = 'Desligar câmera';
     camera.setAttribute('aria-pressed', 'true');
   } catch {
@@ -307,7 +308,8 @@ fetch('/api/status').then(response => response.json()).then(({ configured, confi
     voiceMode.disabled = false;
   }
   supportsVision = configured && provider === 'openai';
-  if (cameraStream) frameButton.hidden = !supportsVision;
+  supportsCameraAnalysis = configured && ['openai','claude'].includes(provider);
+  if (cameraStream) frameButton.hidden = !supportsCameraAnalysis;
   byId('greeting').textContent = 'Oi, ' + owner + '. Eu sou a Max.';
   byId('connection').textContent = configured ? 'Modelo · ' + providerName : providerName + ' · configuração pendente';
   if (provider !== 'openai') {
