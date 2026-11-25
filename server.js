@@ -42,7 +42,11 @@ const liveRoot = fileURLToPath(new URL('./.runtime/live2d/', import.meta.url));
 const liveTypes = { '.js': 'text/javascript', '.json': 'application/json', '.moc3': 'application/octet-stream', '.png': 'image/png', '.jpg': 'image/jpeg', '.webp': 'image/webp', '.wav': 'audio/wav', '.mp3': 'audio/mpeg' };
 let lastObservation = 0;
 let observationBusy = false;
+let transcribing = false;
 const assets = new Map([
+  ['/hearing.js', ['hearing.js', 'text/javascript']],
+  ['/voice-gate.js', ['voice-gate.js', 'text/javascript']],
+  ['/mic-worklet.js', ['mic-worklet.js', 'text/javascript']],
   ['/screen-observer.js', ['screen-observer.js', 'text/javascript']],
   ['/companion.html', ['companion.html', 'text/html']],
   ['/companion.css', ['companion.css', 'text/css']],
@@ -106,7 +110,7 @@ createServer(async (req, res) => {
   }
 
   if (req.method === 'GET' && req.url === '/api/status') {
-    return respond(res, 200, { configured: !configurationError, configurationError, expressiveVoice, voiceProvider, voiceConfigured: expressiveVoice, codexAvailable: Boolean(key), owner, provider, providerName });
+    return respond(res, 200, { configured: !configurationError, configurationError, expressiveVoice, voiceProvider, voiceConfigured: expressiveVoice, hearingAvailable: Boolean(key), codexAvailable: Boolean(key), owner, provider, providerName });
   }
   const stateKind = req.url === '/api/state/conversation' ? 'conversation' : req.url === '/api/state/tasks' ? 'tasks' : null;
   if (req.method === 'GET' && stateKind) {
@@ -119,7 +123,7 @@ createServer(async (req, res) => {
     try { return respond(res, 200, await memoryStore.read()); }
     catch { return respond(res, 500, { error: 'Não consegui ler a memória local.' }); }
   }
-  if (req.method !== 'POST' || !['/api/chat', '/api/voice', '/api/memory', '/api/state/conversation', '/api/state/tasks', '/api/observe'].includes(req.url)) return respond(res, 404, { error: 'Página indisponível.' });
+  if (req.method !== 'POST' || !['/api/chat', '/api/voice', '/api/memory', '/api/state/conversation', '/api/state/tasks', '/api/observe', '/api/transcribe'].includes(req.url)) return respond(res, 404, { error: 'Página indisponível.' });
   if (req.headers.origin !== requestOrigin || req.headers['content-type']?.split(';')[0].trim().toLowerCase() !== 'application/json') {
     return respond(res, 403, { error: 'Origem inválida.' });
   }
@@ -130,7 +134,7 @@ createServer(async (req, res) => {
     const chunks = [];
     for await (const chunk of req.iterator({ destroyOnReturn: false })) {
       size += chunk.length;
-      if (size > (req.url === '/api/voice' ? 20_000 : stateKind ? 24_000_000 : 750_000)) {
+      if (size > (req.url === '/api/voice' ? 20_000 : stateKind ? 24_000_000 : req.url === '/api/transcribe' ? 3_000_000 : 750_000)) {
         res.setHeader('Connection', 'close');
         return respond(res, 413, { error: 'A conversa excedeu o tamanho permitido.' });
       }
@@ -141,6 +145,25 @@ createServer(async (req, res) => {
     return respond(res, 400, { error: 'Não consegui ler a mensagem.' });
   }
 
+  if (req.url === '/api/transcribe') {
+    if (!key) return respond(res,503,{error:'Configure a chave de transcrição OpenAI.'});
+    if (typeof body?.audio !== 'string' || body.audio.length > 2800000 || !/^[A-Za-z0-9+/]+={0,2}$/.test(body.audio)) return respond(res,400,{error:'Áudio inválido.'});
+    const bytes = Buffer.from(body.audio,'base64');
+    if (bytes.length < 44 || bytes.toString('ascii',0,4) !== 'RIFF' || bytes.toString('ascii',8,12) !== 'WAVE') return respond(res,400,{error:'Formato WAV inválido.'});
+    if (transcribing) return respond(res,429,{error:'Transcrição em andamento.'});
+    transcribing = true;
+    try {
+      const data = new FormData();
+      data.append('file',new Blob([bytes],{type:'audio/wav'}),'speech.wav');
+      data.append('model',process.env.MAX_TRANSCRIPTION_MODEL || 'gpt-4o-mini-transcribe');
+      data.append('language','pt');
+      const upstream = await fetch('https://api.openai.com/v1/audio/transcriptions',{method:'POST',headers:{Authorization:'Bearer '+key},body:data,signal:AbortSignal.timeout(30000)});
+      if(!upstream.ok)return respond(res,502,{error:'Serviço de transcrição indisponível.'});
+      const result=await upstream.json();
+      return respond(res,200,{text:typeof result.text==='string'?result.text.slice(0,10000):''});
+    } catch { return respond(res,502,{error:'Falha na transcrição.'}); }
+    finally { transcribing=false; }
+  }
   if (req.url === '/api/observe') {
     if (provider !== 'openai' || !key) return respond(res, 503, { error: 'Visão requer OpenAI configurada.' });
     if (typeof body?.image !== 'string' || body.image.length > 250000 || !/^data:image\/jpeg;base64,[A-Za-z0-9+/]+={0,2}$/.test(body.image)) return respond(res, 400, { error: 'Imagem inválida.' });
