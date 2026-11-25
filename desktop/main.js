@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Tray, Menu, nativeImage, session, dialog, globalShortcut, desktopCapturer, powerMonitor, screen } from 'electron';
+import { app, BrowserWindow, Tray, Menu, nativeImage, session, dialog, globalShortcut, ipcMain, desktopCapturer, powerMonitor, screen } from 'electron';
 import { createDeveloper } from './developer.js';
 import { createWindowsControl } from './windows-control.js';
 import { appendFile, mkdir } from 'node:fs/promises';
@@ -39,7 +39,7 @@ else {
     main = new BrowserWindow({
       width: 1100, height: 780, minWidth: 360, minHeight: 480, show: false,
       title: 'Max', backgroundColor: '#15131e',
-      webPreferences: { session: ses, contextIsolation: true, sandbox: true, nodeIntegration: false, webSecurity: true, backgroundThrottling: false }
+      webPreferences: { preload: join(root,'desktop','preload.cjs'), session: ses, contextIsolation: true, sandbox: true, nodeIntegration: false, webSecurity: true, backgroundThrottling: false }
     });
     main.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
     main.webContents.on('will-navigate', (event, url) => { if (!trusted(url)) event.preventDefault(); });
@@ -70,7 +70,13 @@ else {
       companion.loadURL(origin + '/companion.html').catch(() => companion?.close());
       refreshMenu();
     }
-    const developer = createDeveloper({window:()=>main,key:process.env.OPENAI_API_KEY,model:process.env.MAX_DEVELOPER_MODEL || process.env.OPENAI_MODEL});
+    const developer = createDeveloper({window:()=>main,key:process.env.OPENAI_API_KEY,model:process.env.MAX_DEVELOPER_MODEL || process.env.OPENAI_MODEL,workspace:join(root,'.runtime','developer')});
+    for(const [name,fn] of Object.entries({choose:()=>developer.choose(),propose:(task,paths)=>developer.propose(task,paths),apply:()=>developer.apply(),revoke:()=>developer.revoke()})) {
+      ipcMain.handle('max-dev:'+name,(event,...args)=>{
+        if(event.sender!==main.webContents || event.senderFrame!==main.webContents.mainFrame || !trusted(event.senderFrame.url) || powerMonitor.getSystemIdleState(20)==='locked')throw Error('Acesso local não autorizado');
+        return fn(...args);
+      });
+    }
     let controlEnabled = false, cursorPlay = false;
     const executeControl = createWindowsControl({root, idle:()=>powerMonitor.getSystemIdleTime(), available:()=>controlEnabled && powerMonitor.getSystemIdleState(20)!=='locked', confirm:async action=> (await dialog.showMessageBox(main,{type:'question',buttons:['Cancelar','Abrir'],defaultId:0,cancelId:0,message:'Abrir aplicativo: '+action.app+'?'})).response===1, audit:async entry=>{ const dir=join(root,'.runtime','logs'); await mkdir(dir,{recursive:true}); await appendFile(join(dir,'control.jsonl'),JSON.stringify({at:new Date().toISOString(),...entry})+'\n'); }});
     const cursorTimer=setInterval(()=>{if(cursorPlay && controlEnabled && powerMonitor.getSystemIdleTime()>=20 && main && !main.isFocused()) void executeControl({kind:'cursor-nudge'},{play:true});},60000);
@@ -98,7 +104,7 @@ else {
         { label: 'Desativar sensores e controle', click: stopSensors },
         { label: 'Max Developer', submenu: [
           {label:'Autorizar pasta de projeto',click:async()=>{
-            try { const result=await developer.choose(); if(result) await dialog.showMessageBox(main,{message:'Projeto autorizado',detail:result.root+'\n'+result.files.length+' arquivos elegíveis. A integração de solicitações será habilitada em uma próxima versão.'}); }
+            try { const result=await developer.choose(); if(result) await dialog.showMessageBox(main,{message:'Projeto autorizado',detail:result.root+'\n'+result.files.length+' arquivos elegíveis. Use o painel Developer para solicitar alterações.'}); }
             catch { await dialog.showMessageBox(main,{type:'error',message:'Não foi possível autorizar a pasta.'}); }
           }},
           {label:'Revogar acesso ao projeto',click:()=>developer.revoke()}
