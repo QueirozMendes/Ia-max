@@ -1,7 +1,7 @@
 const areas={meta:['Perfil','#8a90a6'],metas:['Metas','#fbbf24'],trabalho:['Carreira','#ff5547'],projetos:['Projetos','#8b7cff'],financas:['Finanças','#f7931a'],aprendizado:['Estudos','#2dd4ff'],saude:['Saúde','#10b981'],relacoes:['Relações','#ec4899']};
 const $=id=>document.getElementById(id),ns='http://www.w3.org/2000/svg';
 const panel=$('brain'), graph=$('brain-graph'), editor=$('brain-editor'), status=$('brain-status');
-let notes=[],revision=null,selected=null,ready=false,busy=false,editing=false;
+let notes=[],revision=null,selected=null,ready=false,busy=false,editing=false,refreshing=false;
 function svg(tag,attrs={},text){const el=document.createElementNS(ns,tag);for(const [k,v] of Object.entries(attrs))el.setAttribute(k,String(v));if(text!==undefined)el.textContent=text;return el;}
 function render(){
  const filter=$('brain-filter').value, shown=notes.filter(n=>!filter||n.area===filter);
@@ -30,13 +30,13 @@ function edit(id){
  $('brain-delete').hidden=!n;
 }
 function close(){editing=false;selected=null;editor.hidden=true;}
-async function refresh(){if(busy||editing)return;try{const res=await fetch('/api/state/brain');if(!res.ok)throw Error();const data=await res.json();if(!editing&&!busy){notes=data.items;revision=data.revision;ready=true;render();status.textContent='Sincronizado com Max Core.';}}catch{status.textContent='Não foi possível sincronizar.';}}
+async function refresh(){if(busy||editing||refreshing)return false;refreshing=true;try{const res=await fetch('/api/state/brain',{cache:'no-store'});if(!res.ok)throw Error();const data=await res.json();if(!editing&&!busy){notes=data.items;revision=data.revision;ready=true;render();status.textContent='Sincronizado com Max Core.';return true;}return false;}catch{status.textContent='Não foi possível sincronizar.';return false;}finally{refreshing=false;}}
 async function save(next){
- if(!ready||busy)return;busy=true;
+ if(!ready||busy||refreshing)return;busy=true;
  try{const res=await fetch('/api/state/brain',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({items:next,revision})});const data=await res.json();if(res.status===409){notes=data.items;revision=data.revision;close();render();status.textContent='Outro dispositivo alterou as notas. Revise e tente novamente.';return;}if(!res.ok)throw Error(data.error||'Não foi possível salvar');notes=data.items;revision=data.revision;close();render();status.textContent='Notas salvas no Max Core.';}catch(e){status.textContent=e.message;}finally{busy=false;}
 }
 for(const id of ['brain-filter','brain-area']){const el=$(id);for(const [key,[label]] of Object.entries(areas)){const o=document.createElement('option');o.value=key;o.textContent=label;el.append(o);}}
-$('brain-filter').onchange=render;$('brain-add').onclick=()=>{if(ready&&!busy)edit(null);};$('brain-refresh').onclick=()=>{if(!editing)void refresh();};$('brain-cancel').onclick=close;
+$('brain-filter').onchange=render;$('brain-add').onclick=()=>{if(ready&&!busy&&!refreshing)edit(null);};$('brain-refresh').onclick=()=>{if(!editing)void refresh();};$('brain-cancel').onclick=close;
 editor.onsubmit=e=>{e.preventDefault();const title=$('brain-title').value.trim(),body=$('brain-body').value.trim(),links=Array.from($('brain-links').selectedOptions,o=>o.value);if(!title||!body||links.length>20){status.textContent='Preencha título e conteúdo e selecione até 20 conexões.';return;}const n={id:selected||crypto.randomUUID(),area:$('brain-area').value,title,body,useInChat:$('brain-context').checked,links};void save(selected?notes.map(x=>x.id===selected?n:x):[...notes,n]);};
 $('brain-delete').onclick=()=>{if(selected&&confirm('Excluir esta nota e suas conexões?'))void save(notes.filter(x=>x.id!==selected).map(x=>({...x,links:x.links.filter(id=>id!==selected)})));};
 document.querySelector('[data-panel="brain"]').addEventListener('click',()=>void refresh());
@@ -56,8 +56,8 @@ window.addEventListener('max:user-message',async event=>{
  const current=++suggestionEpoch,controller=new AbortController();learningRequest=controller;
  try{
   const res=await fetch('/api/memory/suggest',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:text}),signal:controller.signal});
-  if(!res.ok)throw Error('Análise indisponível.');
   const data=await res.json();
+  if(!res.ok)throw Error(data.error||'Análise indisponível.');
   if(current!==suggestionEpoch||!learning.checked)return;
   for(const suggestion of data.suggestions||[]){
    if(suggestionsBox.children.length>=12)break;
@@ -65,8 +65,8 @@ window.addEventListener('max:user-message',async event=>{
    row.className='memory-suggestion';title.textContent=(suggestion.existingId?'Possível atualização: ':'Nova lembrança: ')+suggestion.title;body.textContent=suggestion.body;accept.type=dismiss.type='button';accept.textContent='Revisar';dismiss.textContent='Descartar';
    dismiss.onclick=()=>row.remove();
    accept.onclick=async()=>{
-    if(editing||busy)return;
-    await refresh();
+    if(editing||busy||refreshing)return;
+    if(!await refresh()){learningStatus.textContent='Não foi possível atualizar as notas. Tente novamente.';return;}
     if(!ready||revision!==data.revision){learningStatus.textContent='As notas mudaram desde a sugestão. Revise manualmente ou descarte.';return;}
     edit(suggestion.existingId);
     $('brain-title').value=suggestion.title;$('brain-area').value=suggestion.area;$('brain-body').value=suggestion.body;
@@ -76,7 +76,7 @@ window.addEventListener('max:user-message',async event=>{
    row.append(title,body,accept,dismiss);suggestionsBox.append(row);
   }
   learningStatus.textContent=data.suggestions.length?'Novas sugestões aguardam revisão.':'Nenhuma nova lembrança identificada.';
- }catch{if(!controller.signal.aborted)learningStatus.textContent='Não foi possível analisar esta mensagem.';}
+ }catch(error){if(!controller.signal.aborted)learningStatus.textContent=error.message||'Não foi possível analisar esta mensagem.';}
  finally{if(learningRequest===controller)learningRequest=undefined;}
 });
 window.addEventListener('pagehide',()=>learningRequest?.abort());
