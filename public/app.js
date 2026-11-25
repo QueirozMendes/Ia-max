@@ -124,6 +124,44 @@ if (typeof memory !== 'string') memory = '';
 if (!Array.isArray(tasks)) tasks = [];
 tasks = tasks.filter(item => item && typeof item.id === 'string' && typeof item.title === 'string');
 byId('memory-text').value = memory;
+let memoryRevision = null;
+let memoryBusy = false;
+let memoryReady = false;
+async function persistMemory(next) {
+  const response = await fetch('/api/memory', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ memory: next, revision: memoryRevision }) });
+  const result = await response.json();
+  if (response.status === 409) {
+    memoryRevision = result.revision;
+    memory = result.memory;
+    byId('memory-text').value = memory;
+    throw new Error('A memória mudou em outra aba. Confira a versão atual e tente novamente.');
+  }
+  if (!response.ok) throw new Error(result.error || 'Falha ao salvar memória.');
+  memoryRevision = result.revision;
+  memory = result.memory;
+  byId('memory-text').value = memory;
+  try { localStorage.removeItem('max.memory'); } catch {}
+}
+async function initializeMemory() {
+  const feedback = byId('memory-status');
+  try {
+    const response = await fetch('/api/memory');
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error);
+    memoryRevision = result.revision;
+    if (memoryRevision === null && memory.trim()) await persistMemory(memory);
+    else {
+      memory = result.memory;
+      byId('memory-text').value = memory;
+      try { localStorage.removeItem('max.memory'); } catch {}
+    }
+    memoryReady = true;
+    feedback.textContent = 'Memória local disponível.';
+  } catch (error) {
+    feedback.textContent = 'Memória local indisponível: ' + error.message + ' Recarregue a página para tentar novamente.';
+  }
+}
+const memoryInitialization = initializeMemory();
 
 document.querySelectorAll('[data-panel]').forEach(button => {
   button.onclick = () => {
@@ -494,6 +532,8 @@ byId('chat-form').onsubmit = async event => {
   const content = message.value.trim();
   if (pending || byId('send').disabled || !content) return;
 
+  await memoryInitialization;
+  if (pending || memoryBusy) return;
   const memoryRequest = content.match(/^lembre\s+que(?:\s+([\s\S]+))?$/i);
   if (memoryRequest) {
     if (spokenTurn) stopVoiceSession();
@@ -503,11 +543,11 @@ byId('chat-form').onsubmit = async event => {
       return;
     }
     const next = [memory, note].filter(Boolean).join('\n');
-    if (next.length > 6000) {
+    if (next.length > 60000) {
       status.textContent = 'A memória atingiu o limite. Você pode liberar espaço na aba Memória.';
       return;
     }
-    if (saveMemory(next, status)) {
+    if (await saveMemory(next, status)) {
       message.value = '';
       status.textContent = 'Guardei essa lembrança. Você pode editá-la na aba Memória.';
       if (spokenTurn) speak('Tá bom, guardei.');
@@ -564,23 +604,41 @@ byId('chat-form').onsubmit = async event => {
   }
 };
 
-function saveMemory(next, feedback) {
-  if (!save('memory', next, feedback)) return false;
-  memory = next;
-  byId('memory-text').value = next;
-  return true;
+async function saveMemory(next, feedback) {
+  await memoryInitialization;
+  if (!memoryReady || memoryBusy) {
+    feedback.textContent = 'Memória indisponível ou ocupada. Tente novamente.';
+    return false;
+  }
+  memoryBusy = true;
+  try { await persistMemory(next); return true; }
+  catch (error) { feedback.textContent = error.message; return false; }
+  finally { memoryBusy = false; }
 }
-
-byId('memory-form').onsubmit = event => {
+byId('memory-form').onsubmit = async event => {
   event.preventDefault();
   const next = byId('memory-text').value.trim();
-  if (next.length > 6000) {
-    byId('memory-status').textContent = 'A memória deve ter até 6.000 caracteres.';
+  if (next.length > 60000) {
+    byId('memory-status').textContent = 'A memória deve ter até 60.000 caracteres.';
     return;
   }
-  if (saveMemory(next, byId('memory-status'))) {
-    byId('memory-status').textContent = 'Memória salva.';
+  if (await saveMemory(next, byId('memory-status'))) {
+    byId('memory-status').textContent = 'Memória salva no computador.';
   }
+};
+byId('memory-export').onclick = async () => {
+  await memoryInitialization;
+  if (!memoryReady) return;
+  const url = URL.createObjectURL(new Blob([memory], { type: 'text/plain;charset=utf-8' }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = 'max-memoria.txt';
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+};
+byId('memory-clear').onclick = async () => {
+  if (!window.confirm('Apagar todas as lembranças salvas da Max?')) return;
+  if (await saveMemory('', byId('memory-status'))) byId('memory-status').textContent = 'Memória apagada.';
 };
 
 function renderTasks() {
