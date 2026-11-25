@@ -56,7 +56,7 @@ export function createScreenObserver({ button, automatic, status, available, bus
         lastComment = result.comment;
         onComment(result.comment);
       }
-      status.textContent = 'Observação ativa.';
+      if (!result.comment) status.textContent = 'Observação ativa.';
     } catch {
       if (current !== epoch) return;
       if (++failures >= 3) automatic.checked = false;
