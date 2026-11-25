@@ -1,15 +1,16 @@
 import { createProjectReader, validateProposal } from '../lib/project-reader.js';
+import { applyInWorktree, checkSyntax } from '../lib/project-worktree.js';
 import { dialog } from 'electron';
-export function createDeveloper({window, key, model='gpt-4.1-mini'}) {
-  let project, busy=false, generation=0, controller;
+export function createDeveloper({window, key, model='gpt-4.1-mini', workspace}) {
+  let project, busy=false, generation=0, controller, pendingProposal;
   async function choose() {
     const selection=await dialog.showOpenDialog(window(),{title:'Autorizar projeto para a Max',properties:['openDirectory']});
     if(selection.canceled)return null;
     const reader=await createProjectReader(selection.filePaths[0]);
-    generation++;controller?.abort();project=reader;
+    generation++;controller?.abort();pendingProposal=undefined;project=reader;
     return {root:reader.root,files:await reader.list()};
   }
-  function revoke(){generation++;controller?.abort();project=undefined;}
+  function revoke(){generation++;controller?.abort();project=undefined;pendingProposal=undefined;}
   async function propose(task,paths){
     if(!project||busy||!key)throw Error('Autorize um projeto e configure a OpenAI.');
     if(typeof task!=='string'||!task.trim()||task.length>4000||!Array.isArray(paths)||paths.length<1||paths.length>8||new Set(paths).size!==paths.length)throw Error('Solicitação inválida');
@@ -30,8 +31,23 @@ export function createDeveloper({window, key, model='gpt-4.1-mini'}) {
       const body=await result.json();
       if(current!==generation)throw Error('Autorização revogada');
       const answer=(body.output||[]).filter(x=>x.type==='message').flatMap(x=>x.content||[]).filter(x=>x.type==='output_text').map(x=>x.text).join('');
-      return validateProposal(JSON.parse(answer),files);
+      pendingProposal=validateProposal(JSON.parse(answer),files);
+      return pendingProposal;
     }finally{busy=false;controller=undefined;}
   }
-  return {choose,revoke,propose};
+  async function apply(){
+    if(!project||busy||!pendingProposal?.changes.length)throw Error('Nenhuma proposta pendente');
+    const current=generation, proposal=pendingProposal, root=project.root;
+    busy=true;
+    try{
+      const approval=await dialog.showMessageBox(window(),{type:'warning',buttons:['Cancelar','Aplicar em branch isolada'],defaultId:0,cancelId:0,message:'Aplicar a proposta revisada?',detail:proposal.summary+'\n'+proposal.changes.map(c=>c.path).join('\n')});
+      if(approval.response!==1||current!==generation)throw Error('Cancelado');
+      const approved=()=>current===generation;
+      const result=await applyInWorktree({root,workspace,proposal,approved});
+      pendingProposal=undefined;
+      const syntax=await checkSyntax(result.directory,proposal.changes.map(c=>c.path),approved);
+      return {...result,syntax};
+    }finally{busy=false;}
+  }
+  return {choose,revoke,propose,apply};
 }
