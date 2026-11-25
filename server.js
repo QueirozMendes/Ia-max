@@ -1,3 +1,4 @@
+import { chooseBrain, brainOptions } from './lib/brain-router.js';
 import { askClaude } from './lib/claude.js';
 import { createServer } from 'node:http';
 import { library } from './public/library.js';
@@ -23,7 +24,9 @@ const owner = process.env.MAX_OWNER || 'Gabriel';
 const key = process.env.OPENAI_API_KEY;
 const model = process.env.OPENAI_MODEL || 'gpt-4.1-mini';
 const codexModel = process.env.OPENAI_CODEX_MODEL || 'gpt-5.3-codex';
-const provider = process.env.MAX_PROVIDER || 'openai';
+const brainMode = process.env.MAX_PROVIDER || 'auto';
+const provider = brainMode === 'auto' ? 'ollama' : brainMode;
+const allowCloud = process.env.MAX_ALLOW_CLOUD === 'true';
 const ollama = provider === 'ollama';
 const router = provider === 'openrouter';
 const local = provider === 'llama.cpp' || ollama;
@@ -31,6 +34,7 @@ const claude = provider === 'claude';
 const anthropicKey = process.env.ANTHROPIC_API_KEY;
 const anthropicModel = process.env.ANTHROPIC_MODEL;
 const routerKey = process.env.OPENROUTER_API_KEY;
+const brainKeys = {openai:Boolean(key),claude:Boolean(anthropicKey&&anthropicModel),openrouter:Boolean(routerKey&&process.env.OPENROUTER_MODEL)};
 const providerName = { openai: 'OpenAI', 'llama.cpp': 'llama.cpp', ollama: 'Ollama', openrouter: 'OpenRouter', claude: 'Claude' }[provider];
 if (!providerName) throw new Error('MAX_PROVIDER inválido.');
 const configurationError = claude ? (!anthropicKey || !anthropicModel ? 'Configure ANTHROPIC_API_KEY e ANTHROPIC_MODEL no .env.' : '') : router
@@ -129,7 +133,7 @@ createServer(async (req, res) => {
   }
 
   if (req.method === 'GET' && req.url === '/api/status') {
-    return respond(res, 200, { configured: !configurationError, configurationError, expressiveVoice, voiceProvider, voiceConfigured: expressiveVoice, hearingAvailable: Boolean(key), codexAvailable: Boolean(key), owner, provider, providerName });
+    return respond(res, 200, { configured: !configurationError, configurationError, expressiveVoice, voiceProvider, voiceConfigured: expressiveVoice, hearingAvailable: Boolean(key), codexAvailable: brainMode !== 'auto' && Boolean(key), owner, provider, providerName, brainMode, brainOptions: brainMode==='auto'?brainOptions({allowCloud,keys:brainKeys}):[] });
   }
   const stateKind = req.url === '/api/state/conversation' ? 'conversation' : req.url === '/api/state/tasks' ? 'tasks' : req.url === '/api/state/brain' ? 'brain' : null;
   if(req.method==='GET' && req.url==='/api/brain/links'){
@@ -307,14 +311,18 @@ createServer(async (req, res) => {
     }
   }
 
-  const { messages, memory, file, search, pendingTasks, reference, image, spokenTurn, coding } = body ?? {};
+  const { messages, memory, file, search, pendingTasks, reference, image, spokenTurn, coding, brain } = body ?? {};
   if (!Array.isArray(messages) || !messages.length || messages.length > 16 ||
       !messages.every(item => item && ['user', 'assistant'].includes(item.role) && typeof item.content === 'string' && item.content.length <= 10_000) ||
       messages.at(-1).role !== 'user' || !messages.at(-1).content.trim()) {
     return respond(res, 400, { error: 'Envie uma mensagem válida de até 10.000 caracteres.' });
   }
-  const useCodex = coding === true && Boolean(key);
-  if (configurationError && !useCodex) return respond(res, 503, { error: configurationError });
+  const route=chooseBrain({mode:brainMode,requested:brain,allowCloud,search:search===true,image:image!==undefined,coding,keys:brainKeys});
+  if(route.error)return respond(res,400,{error:route.error});
+  const provider=route.provider, useCodex=route.useCodex;
+  const ollama=provider==='ollama', router=provider==='openrouter', claude=provider==='claude', local=ollama||provider==='llama.cpp';
+  const providerName={openai:'OpenAI',ollama:'Ollama','llama.cpp':'llama.cpp',claude:'Claude',openrouter:'OpenRouter'}[provider];
+  if (brainMode!=='auto' && configurationError && !useCodex) return respond(res, 503, { error: configurationError });
   if (useCodex && image !== undefined) {
     return respond(res, 400, { error: 'Para usar Codex, remova a foto e compartilhe o código como texto.' });
   }
@@ -386,9 +394,9 @@ createServer(async (req, res) => {
         headers: { 'Content-Type': 'application/json', ...(router ? { Authorization: 'Bearer ' + routerKey } : {}) },
         signal: AbortSignal.timeout(ollama ? 240_000 : 120_000),
         body: JSON.stringify({
-          model: router ? process.env.OPENROUTER_MODEL : ollama ? process.env.OLLAMA_MODEL || 'qwen2.5:1.5b' : process.env.LLAMA_MODEL || 'local',
+          model: router ? process.env.OPENROUTER_MODEL : ollama ? process.env.OLLAMA_MODEL || 'qwen3:8b' : process.env.LLAMA_MODEL || 'local',
           messages: [{ role: 'system', content: systemPrompt }, ...input],
-          max_tokens: ollama ? (spokenTurn === true ? 160 : 700) : 1536,
+          max_tokens: ollama ? (spokenTurn === true ? 512 : 2048) : 1536,
           stream: false,
         }),
       });
