@@ -163,6 +163,63 @@ async function initializeMemory() {
   }
 }
 const memoryInitialization = initializeMemory();
+const revisions = { conversation: null, tasks: null };
+let syncBusy = false;
+let syncReady = false;
+function applyState(kind, result) {
+  revisions[kind] = result.revision;
+  if (kind === 'conversation') { messages = result.items; renderConversation(); }
+  else { tasks = result.items; renderTasks(); }
+}
+async function pullState(kind) {
+  const response = await fetch('/api/state/' + kind);
+  if (!response.ok) throw new Error('Não consegui acessar o Max Core.');
+  return response.json();
+}
+async function pushState(kind, items) {
+  const response = await fetch('/api/state/' + kind, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ items, revision: revisions[kind] })
+  });
+  const result = await response.json();
+  if (response.status === 409) {
+    applyState(kind, result);
+    throw new Error('Outro dispositivo atualizou os dados. Confira a versão atual e tente novamente.');
+  }
+  if (!response.ok) throw new Error(result.error || 'Não consegui sincronizar.');
+  applyState(kind, result);
+}
+async function initializeSync() {
+  syncBusy = true;
+  try {
+    for (const kind of ['conversation', 'tasks']) {
+      const result = await pullState(kind);
+      const existing = kind === 'conversation' ? messages : tasks;
+      if (result.revision === null && existing.length) {
+        await pushState(kind, existing);
+        try { localStorage.removeItem('max.' + kind); } catch {}
+      } else {
+        applyState(kind, result);
+        // Preserve older local data if a different device initialized the server.
+        if (!existing.length) try { localStorage.removeItem('max.' + kind); } catch {}
+      }
+    }
+    syncReady = true;
+  } catch (error) { status.textContent = error.message; }
+  finally { syncBusy = false; }
+}
+async function refreshSync() {
+  if (!syncReady || syncBusy || pending || memoryBusy || document.hidden) return;
+  syncBusy = true;
+  try {
+    for (const kind of ['conversation', 'tasks']) {
+      const result = await pullState(kind);
+      if (result.revision !== revisions[kind]) applyState(kind, result);
+    }
+  } catch { /* keep displayed data; retry on next poll */ }
+  finally { syncBusy = false; }
+}
+
 
 document.querySelectorAll('[data-panel]').forEach(button => {
   button.onclick = () => {
@@ -404,11 +461,13 @@ document.querySelectorAll('[data-prompt]').forEach(button => {
   };
 });
 
-byId('new-chat').onclick = () => {
-  if (pending) return;
+byId('new-chat').onclick = async () => {
+  if (pending || syncBusy || !syncReady) return;
   if (messages.length && !window.confirm('Apagar a conversa atual e começar outra?')) return;
-  if (!save('conversation', [], status)) return;
-  messages = [];
+  syncBusy = true;
+  try { await pushState('conversation', []); }
+  catch (error) { status.textContent = error.message; return; }
+  finally { syncBusy = false; }
   status.textContent = '';
   stopVoiceSession();
   stopSpeaking();
@@ -594,7 +653,7 @@ byId('chat-form').onsubmit = async event => {
   if (pending || byId('send').disabled || !content) return;
 
   await memoryInitialization;
-  if (pending || memoryBusy) return;
+  if (pending || memoryBusy || syncBusy || !syncReady) { status.textContent = 'Aguarde a sincronização com o Max Core.'; return; }
   const memoryRequest = content.match(/^lembre\s+que(?:\s+([\s\S]+))?$/i);
   if (memoryRequest) {
     if (spokenTurn) stopVoiceSession();
@@ -640,10 +699,19 @@ byId('chat-form').onsubmit = async event => {
     });
     const result = await response.json();
     if (!response.ok) throw new Error(result.error);
-    messages.push(user, { role: 'assistant', content: result.answer, sources: result.sources });
-    messages = messages.slice(-100);
+    const turn = { role: 'assistant', content: result.answer, sources: result.sources };
+    const next = [...messages, user, turn].slice(-100);
+    try { await pushState('conversation', next); }
+    catch (error) {
+      // Keep the unsaved answer visible without overwriting another device.
+      status.textContent = 'Resposta não sincronizada: ' + error.message;
+      const article = document.createElement('article');
+      article.className = 'turn assistant';
+      article.textContent = result.answer;
+      history.append(article);
+      return;
+    }
     status.textContent = result.incomplete ? 'A resposta atingiu o limite de tamanho.' : '';
-    save('conversation', messages, status);
     message.value = '';
     clearAttachment();
     cameraFrame = undefined;
@@ -727,24 +795,28 @@ function renderTasks() {
   }
 }
 
-function updateTasks(next) {
+async function updateTasks(next) {
   const feedback = byId('task-status');
+  if (!syncReady || syncBusy || pending) { renderTasks(); feedback.textContent = 'Aguarde a sincronização.'; return false; }
+  syncBusy = true;
   feedback.textContent = '';
-  const saved = save('tasks', next, feedback);
-  if (saved) tasks = next;
-  renderTasks();
-  return saved;
+  try { await pushState('tasks', next); return true; }
+  catch (error) { feedback.textContent = error.message; renderTasks(); return false; }
+  finally { syncBusy = false; }
 }
 
-byId('task-form').onsubmit = event => {
+byId('task-form').onsubmit = async event => {
   event.preventDefault();
   const field = byId('task-text');
   const title = field.value.trim();
-  if (title && updateTasks([...tasks, { title, done: false, id: crypto.randomUUID() }])) field.value = '';
+  if (title && await updateTasks([...tasks, { title, done: false, id: crypto.randomUUID() }])) field.value = '';
 };
 
 renderConversation();
 renderTasks();
+void initializeSync();
+setInterval(refreshSync, 5000);
+document.addEventListener('visibilitychange', refreshSync);
 
 const removeReference = byId('remove-reference');
 function setReference(project) {
