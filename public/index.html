@@ -13,8 +13,19 @@
   <link rel="stylesheet" href="/style.css">
   <script type="module" src="/app.js"></script>
   <script type="module" src="/brain-ui.js"></script>
+  <script type="module" src="/boot.js"></script>
 </head>
 <body>
+  <section id="max-boot" hidden aria-label="Inicialização da Max">
+    <div class="boot-shell">
+      <div class="boot-portrait"><img src="/max-anime.png" alt="Max"></div>
+      <span class="boot-kicker">✦ MAX CORE · SUA ASSISTENTE PESSOAL</span>
+      <h1>Max</h1><p class="boot-tagline">Vamos criar algo juntos?</p>
+      <p id="boot-summary" role="status">Conectando...</p><ul id="boot-modules"></ul>
+      <div class="boot-actions"><button id="boot-start" class="primary" type="button" disabled>Conversar com a Max</button><button id="boot-retry" type="button">Verificar novamente</button><button id="boot-skip" type="button">Continuar sem saudação</button></div>
+      <p class="boot-note">A câmera, o microfone e a observação de tela permanecem desligados até sua autorização.</p>
+    </div>
+  </section>
   <aside class="sidebar">
     <a class="brand" href="/" aria-label="Max, início"><span aria-hidden="true">✦</span> Max</a>
     <nav aria-label="Painel">
