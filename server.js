@@ -47,6 +47,10 @@ let initiativeBusy = false;
 let observationBusy = false;
 let transcribing = false;
 const assets = new Map([
+  ['/manifest.webmanifest', ['manifest.webmanifest', 'application/manifest+json']],
+  ['/max-icon.svg', ['max-icon.svg', 'image/svg+xml']],
+  ['/mobile.js', ['mobile.js', 'text/javascript']],
+  ['/sw.js', ['sw.js', 'text/javascript']],
   ['/initiative.js', ['initiative.js', 'text/javascript']],
   ['/hearing.js', ['hearing.js', 'text/javascript']],
   ['/voice-gate.js', ['voice-gate.js', 'text/javascript']],
