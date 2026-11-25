@@ -7,9 +7,10 @@ import { readFile, access, realpath } from 'node:fs/promises';
 import { resolve, sep, extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createMemoryStore, relevantMemory, MEMORY_LIMIT } from './lib/memory.js';
+import { brainContext } from './lib/brain.js';
 import { createStateStore, validateState } from './lib/state.js';
 const stateDirectory = fileURLToPath(new URL('./.runtime/', import.meta.url));
-const stateStores = { conversation: createStateStore(stateDirectory, 'conversation'), tasks: createStateStore(stateDirectory, 'tasks') };
+const stateStores = { conversation: createStateStore(stateDirectory, 'conversation'), tasks: createStateStore(stateDirectory, 'tasks'), brain: createStateStore(stateDirectory, 'brain') };
 const memoryStore = createMemoryStore(fileURLToPath(new URL('./.runtime/', import.meta.url)));
 
 const port = Number(process.env.PORT || 4173);
@@ -47,6 +48,7 @@ let initiativeBusy = false;
 let observationBusy = false;
 let transcribing = false;
 const assets = new Map([
+  ['/brain-ui.js', ['brain-ui.js', 'text/javascript']],
   ['/manifest.webmanifest', ['manifest.webmanifest', 'application/manifest+json']],
   ['/max-icon.svg', ['max-icon.svg', 'image/svg+xml']],
   ['/mobile.js', ['mobile.js', 'text/javascript']],
@@ -120,7 +122,7 @@ createServer(async (req, res) => {
   if (req.method === 'GET' && req.url === '/api/status') {
     return respond(res, 200, { configured: !configurationError, configurationError, expressiveVoice, voiceProvider, voiceConfigured: expressiveVoice, hearingAvailable: Boolean(key), codexAvailable: Boolean(key), owner, provider, providerName });
   }
-  const stateKind = req.url === '/api/state/conversation' ? 'conversation' : req.url === '/api/state/tasks' ? 'tasks' : null;
+  const stateKind = req.url === '/api/state/conversation' ? 'conversation' : req.url === '/api/state/tasks' ? 'tasks' : req.url === '/api/state/brain' ? 'brain' : null;
   if (req.method === 'GET' && stateKind) {
     if (req.headers['sec-fetch-site'] && req.headers['sec-fetch-site'] !== 'same-origin') return respond(res, 403, { error: 'Origem inválida.' });
     try { return respond(res, 200, await stateStores[stateKind].read()); }
@@ -131,7 +133,7 @@ createServer(async (req, res) => {
     try { return respond(res, 200, await memoryStore.read()); }
     catch { return respond(res, 500, { error: 'Não consegui ler a memória local.' }); }
   }
-  if (req.method !== 'POST' || !['/api/chat', '/api/voice', '/api/memory', '/api/state/conversation', '/api/state/tasks', '/api/observe', '/api/transcribe', '/api/initiative'].includes(req.url)) return respond(res, 404, { error: 'Página indisponível.' });
+  if (req.method !== 'POST' || !['/api/chat', '/api/voice', '/api/memory', '/api/state/conversation', '/api/state/tasks', '/api/state/brain', '/api/observe', '/api/transcribe', '/api/initiative'].includes(req.url)) return respond(res, 404, { error: 'Página indisponível.' });
   if (req.headers.origin !== requestOrigin || req.headers['content-type']?.split(';')[0].trim().toLowerCase() !== 'application/json') {
     return respond(res, 403, { error: 'Origem inválida.' });
   }
@@ -292,6 +294,7 @@ createServer(async (req, res) => {
   if (!useCodex) {
     try {
       const saved = await memoryStore.read();
+      context.secondBrain = brainContext((await stateStores.brain.read()).items, messages.at(-1).content);
       context.memoria = relevantMemory(saved.revision === null && typeof memory === 'string' ? memory.slice(0, MEMORY_LIMIT) : saved.memory, messages.at(-1).content);
     } catch { return respond(res, 500, { error: 'Não consegui acessar a memória central.' }); }
   }
