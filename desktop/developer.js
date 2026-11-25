@@ -1,16 +1,17 @@
 import { createProjectReader, validateProposal } from '../lib/project-reader.js';
 import { applyInWorktree, checkSyntax } from '../lib/project-worktree.js';
+import { runProjectTests } from '../lib/project-tests.js';
 import { dialog } from 'electron';
 export function createDeveloper({window, key, model='gpt-4.1-mini', workspace}) {
-  let project, busy=false, generation=0, controller, pendingProposal;
+  let project, busy=false, generation=0, controller, pendingProposal, applied;
   async function choose() {
     const selection=await dialog.showOpenDialog(window(),{title:'Autorizar projeto para a Max',properties:['openDirectory']});
     if(selection.canceled)return null;
     const reader=await createProjectReader(selection.filePaths[0]);
-    generation++;controller?.abort();pendingProposal=undefined;project=reader;
+    generation++;controller?.abort();pendingProposal=undefined;applied=undefined;project=reader;
     return {root:reader.root,files:await reader.list()};
   }
-  function revoke(){generation++;controller?.abort();project=undefined;pendingProposal=undefined;}
+  function revoke(){generation++;controller?.abort();project=undefined;pendingProposal=undefined;applied=undefined;}
   async function propose(task,paths){
     if(!project||busy||!key)throw Error('Autorize um projeto e configure a OpenAI.');
     if(typeof task!=='string'||!task.trim()||task.length>4000||!Array.isArray(paths)||paths.length<1||paths.length>8||new Set(paths).size!==paths.length)throw Error('Solicitação inválida');
@@ -46,8 +47,24 @@ export function createDeveloper({window, key, model='gpt-4.1-mini', workspace}) 
       const result=await applyInWorktree({root,workspace,proposal,approved});
       pendingProposal=undefined;
       const syntax=await checkSyntax(result.directory,proposal.changes.map(c=>c.path),approved);
-      return {...result,syntax};
+      if(current!==generation)throw Error('Autorização revogada');
+      applied=result;
+      const reader=await createProjectReader(result.directory);
+      const tests=(await reader.list()).filter(p=>/(?:^|\/)(?:[^/]+\.(?:test|spec)\.(?:js|mjs|cjs)|test\/[^/]+\.(?:js|mjs|cjs))$/.test(p));
+      return {...result,syntax,tests};
     }finally{busy=false;}
   }
-  return {choose,revoke,propose,apply};
+  async function test(paths){
+    if(!applied||!project||busy)throw Error('Aplique uma proposta primeiro');
+    if(!Array.isArray(paths)||!paths.length||paths.length>20||paths.some(p=>typeof p!=='string'||p.length>240))throw Error('Seleção inválida');
+    const current=generation, directory=applied.directory;
+    busy=true;
+    try{
+      const approval=await dialog.showMessageBox(window(),{type:'warning',buttons:['Cancelar','Executar testes'],defaultId:0,cancelId:0,message:'Executar código de teste local?',detail:'Somente execute testes de projetos confiáveis. A cópia Git não é uma sandbox de segurança. O código pode acessar arquivos e rede com suas permissões.\n'+paths.join('\n')});
+      if(approval.response!==1||current!==generation)throw Error('Cancelado');
+      controller=new AbortController();
+      return await runProjectTests({directory,paths,signal:controller.signal});
+    }finally{busy=false;controller=undefined;}
+  }
+  return {choose,revoke,propose,apply,test};
 }
