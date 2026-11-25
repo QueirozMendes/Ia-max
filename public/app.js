@@ -840,24 +840,25 @@ if (window.maxDeveloper) {
   const dev=window.maxDeveloper, panel=byId('developer-panel'), feedback=byId('developer-status'), files=byId('developer-files'), review=byId('developer-review'), apply=byId('developer-apply');
   const choose=byId('developer-choose'), propose=byId('developer-propose'), revoke=byId('developer-revoke');
   const testFiles=byId('developer-tests'), runTests=byId('developer-run-tests'), testOutput=byId('developer-test-output');
-  let working=false, epoch=0;
+  const codexButton=byId('developer-codex');
+  let working=false, epoch=0, worktreeReady=false;
   panel.hidden=false;
   async function perform(fn){
     if(working)return;
-    working=true;choose.disabled=propose.disabled=true;apply.disabled=true;runTests.disabled=true;
+    working=true;choose.disabled=propose.disabled=true;apply.disabled=true;runTests.disabled=true;codexButton.disabled=true;
     const current=epoch;
     try{await fn(current);}
     catch(error){if(current===epoch)feedback.textContent=error.message||'Operação não concluída.';}
-    finally{working=false;choose.disabled=propose.disabled=false;runTests.disabled=!testFiles.options.length;}
+    finally{working=false;choose.disabled=propose.disabled=false;runTests.disabled=!testFiles.options.length;codexButton.disabled=!worktreeReady;}
   }
   choose.onclick=()=>perform(async current=>{
     const result=await dev.choose();
     if(!result||current!==epoch)return;
     files.replaceChildren(...result.files.map(path=>{const option=document.createElement('option');option.value=path;option.textContent=path;return option;}));
-    review.textContent='';testFiles.replaceChildren();testOutput.textContent='';feedback.textContent=result.root;
+    worktreeReady=false;review.textContent='';testFiles.replaceChildren();testOutput.textContent='';feedback.textContent=result.root;
   });
   revoke.onclick=async()=>{
-    epoch++;apply.disabled=true;runTests.disabled=true;testFiles.replaceChildren();testOutput.textContent='';files.replaceChildren();review.textContent='';
+    epoch++;worktreeReady=false;codexButton.disabled=true;apply.disabled=true;runTests.disabled=true;testFiles.replaceChildren();testOutput.textContent='';files.replaceChildren();review.textContent='';
     await dev.revoke();feedback.textContent='Acesso revogado.';
   };
   propose.onclick=()=>perform(async current=>{
@@ -872,6 +873,7 @@ if (window.maxDeveloper) {
     feedback.textContent='Criando branch isolada...';
     const result=await dev.apply();
     if(current!==epoch)return;
+    worktreeReady=true;
     review.textContent='Branch: '+result.branch+'\nPasta: '+result.directory+'\nSintaxe: '+(result.syntax.map(r=>r.path+': '+(r.ok?'OK':'FALHOU')).join(', ')||'Nenhum JavaScript verificado')+'\n\n'+result.diff;
     testFiles.replaceChildren(...result.tests.map(path=>{const option=document.createElement('option');option.value=path;option.textContent=path;return option;}));
     testOutput.textContent='';
@@ -884,5 +886,14 @@ if (window.maxDeveloper) {
     if(current!==epoch)return;
     testOutput.textContent=result.output;
     feedback.textContent=result.ok?'Testes selecionados passaram.':'Testes falharam ou não puderam executar.';
+  });
+  codexButton.onclick=()=>perform(async current=>{
+    feedback.textContent='Codex trabalhando na cópia isolada...';
+    const result=await dev.codex(byId('developer-task').value);
+    if(current!==epoch)return;
+    review.textContent='Arquivos alterados:\n'+result.status+'\n\n'+result.diff;
+    testOutput.textContent=result.output;
+    testFiles.replaceChildren(...result.tests.map(path=>{const option=document.createElement('option');option.value=path;option.textContent=path;return option;}));
+    feedback.textContent=result.ok?'Codex terminou. Revise as alterações, inclusive arquivos novos.':'Codex não concluiu. Revise alterações parciais.';
   });
 }
