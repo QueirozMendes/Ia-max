@@ -118,6 +118,9 @@ function save(name, value, feedback) {
 let messages = read('conversation', []);
 let memory = read('memory', '');
 let tasks = read('tasks', []);
+if (!Array.isArray(messages)) messages = [];
+if (typeof memory !== 'string') memory = '';
+if (!Array.isArray(tasks)) tasks = [];
 byId('memory-text').value = memory;
 
 document.querySelectorAll('[data-panel]').forEach(button => {
@@ -301,6 +304,7 @@ document.querySelectorAll('[data-prompt]').forEach(button => {
 });
 
 byId('new-chat').onclick = () => {
+  if (pending) return;
   if (messages.length && !window.confirm('Apagar a conversa atual e começar outra?')) return;
   if (!save('conversation', [], status)) return;
   messages = [];
@@ -568,6 +572,10 @@ function saveMemory(next, feedback) {
 byId('memory-form').onsubmit = event => {
   event.preventDefault();
   const next = byId('memory-text').value.trim();
+  if (next.length > 6000) {
+    byId('memory-status').textContent = 'A memória deve ter até 6.000 caracteres.';
+    return;
+  }
   if (saveMemory(next, byId('memory-status'))) {
     byId('memory-status').textContent = 'Memória salva.';
   }
