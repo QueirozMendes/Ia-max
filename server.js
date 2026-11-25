@@ -8,6 +8,7 @@ import { resolve, sep, extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createMemoryStore, relevantMemory, MEMORY_LIMIT } from './lib/memory.js';
 import { memorySuggestions } from './lib/living-memory.js';
+import { suggestLinks } from './lib/neural.js';
 import { brainContext } from './lib/brain.js';
 import { createStateStore, validateState } from './lib/state.js';
 const stateDirectory = fileURLToPath(new URL('./.runtime/', import.meta.url));
@@ -126,6 +127,11 @@ createServer(async (req, res) => {
     return respond(res, 200, { configured: !configurationError, configurationError, expressiveVoice, voiceProvider, voiceConfigured: expressiveVoice, hearingAvailable: Boolean(key), codexAvailable: Boolean(key), owner, provider, providerName });
   }
   const stateKind = req.url === '/api/state/conversation' ? 'conversation' : req.url === '/api/state/tasks' ? 'tasks' : req.url === '/api/state/brain' ? 'brain' : null;
+  if(req.method==='GET' && req.url==='/api/brain/links'){
+    if(req.headers['sec-fetch-site'] && req.headers['sec-fetch-site']!=='same-origin')return respond(res,403,{error:'Origem inválida.'});
+    try{const state=await stateStores.brain.read();return respond(res,200,{links:suggestLinks(state.items),revision:state.revision});}
+    catch{return respond(res,500,{error:'Não foi possível analisar as conexões.'});}
+  }
   if (req.method === 'GET' && stateKind) {
     if (req.headers['sec-fetch-site'] && req.headers['sec-fetch-site'] !== 'same-origin') return respond(res, 403, { error: 'Origem inválida.' });
     try { return respond(res, 200, await stateStores[stateKind].read()); }
