@@ -53,9 +53,12 @@
           <button id="greet-max" type="button">Ouvir saudação</button>
           <label class="toggle"><input type="checkbox" id="voice-mode" checked> Responder em voz alta</label>
           <label class="toggle"><input type="checkbox" id="continuous-voice" checked> Escuta contínua</label>
+          <button id="screen-observe" type="button" aria-pressed="false">Observar tela</button>
+          <label class="toggle"><input type="checkbox" id="screen-auto"> Comentários sobre a tela</label>
           <button id="camera" type="button" aria-pressed="false">Ligar câmera</button>
           <button id="camera-frame" type="button" hidden>Compartilhar foto</button>
         </div>
+        <p id="screen-status" role="status">Tela não compartilhada.</p>
         <p id="mic-feedback" role="status" hidden></p>
         <video id="camera-preview" autoplay playsinline muted hidden aria-label="Prévia da sua câmera"></video>
       </div>
