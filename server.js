@@ -1,5 +1,6 @@
 import { createServer } from 'node:http';
 import { library } from './public/library.js';
+import { createAccessPolicy } from './lib/access.js';
 import { voiceInstructions } from './public/voice.js';
 import { readFile, access, realpath } from 'node:fs/promises';
 import { resolve, sep, extname } from 'node:path';
@@ -9,6 +10,7 @@ const memoryStore = createMemoryStore(fileURLToPath(new URL('./.runtime/', impor
 
 const port = Number(process.env.PORT || 4173);
 const origin = 'http://127.0.0.1:' + port;
+const accessPolicy = createAccessPolicy({ port, remoteOrigin: process.env.MAX_REMOTE_ORIGIN, password: process.env.MAX_REMOTE_PASSWORD });
 const owner = process.env.MAX_OWNER || 'Gabriel';
 const key = process.env.OPENAI_API_KEY;
 const model = process.env.OPENAI_MODEL || 'gpt-4.1-mini';
@@ -56,7 +58,13 @@ createServer(async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Content-Security-Policy', "default-src 'self'; media-src 'self' blob:; frame-ancestors 'none'; object-src 'none'; base-uri 'none'");
-  if (req.headers.host !== '127.0.0.1:' + port) return respond(res, 403, { error: 'Abra a Max pelo endereço local exibido no terminal.' });
+  const authorization = accessPolicy.authorize(req.headers);
+  if (authorization.status === 401) {
+    res.setHeader('WWW-Authenticate', 'Basic realm="Max Core", charset="UTF-8"');
+    return respond(res, 401, { error: 'Autenticação necessária.' });
+  }
+  if (authorization.status !== 200) return respond(res, 403, { error: 'Endereço não autorizado.' });
+  const requestOrigin = authorization.origin;
 
   if (req.method === 'GET' && req.url === '/api/avatar-status') {
     const files = ['vendor/live2dcubismcore.min.js', 'vendor/pixi.min.js', 'vendor/cubism4.min.js', 'model/max.model3.json'];
@@ -98,7 +106,7 @@ createServer(async (req, res) => {
     catch { return respond(res, 500, { error: 'Não consegui ler a memória local.' }); }
   }
   if (req.method !== 'POST' || !['/api/chat', '/api/voice', '/api/memory'].includes(req.url)) return respond(res, 404, { error: 'Página indisponível.' });
-  if (req.headers.origin !== origin || req.headers['content-type']?.split(';')[0].trim().toLowerCase() !== 'application/json') {
+  if (req.headers.origin !== requestOrigin || req.headers['content-type']?.split(';')[0].trim().toLowerCase() !== 'application/json') {
     return respond(res, 403, { error: 'Origem inválida.' });
   }
 
