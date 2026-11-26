@@ -13,6 +13,7 @@
   <link rel="stylesheet" href="/style.css">
   <script type="module" src="/app.js"></script>
   <script type="module" src="/brain-ui.js"></script>
+  <script type="module" src="/autonomy.js"></script>
   <script type="module" src="/boot.js"></script>
 </head>
 <body>
@@ -49,6 +50,9 @@
         </div>
         <p id="avatar-engine" role="status">Avatar clássico</p>
         <div class="avatar-controls" aria-label="Vista da Max">
+          <label>Avatar <select id="avatar-engine-choice"><option value="classic">Max clássica</option><option value="epsilon">Epsilon · Live2D</option></select></label>
+          <label id="avatar-expression-label" hidden>Expressão <select id="avatar-expression"></select></label>
+          <button id="avatar-motion" type="button" hidden>Testar movimento</button>
           <label>Enquadramento
             <select id="avatar-view">
               <option value="auto">A Max escolhe</option>
@@ -70,8 +74,9 @@
         </div>
         <div class="presence-copy"><span class="presence-mark" aria-hidden="true">✦</span><strong>Max</strong><span id="presence-status" role="status">Pronta para conversar</span></div>
         <div class="presence-controls">
-          <button id="mic" type="button" aria-pressed="false">Ativar microfone contínuo</button>
-          <button id="greet-max" type="button">Ouvir saudação</button>
+          <button id="mic" type="button" aria-pressed="false">Conversar por voz</button>
+          <button id="system-audio" type="button" aria-pressed="false">Ouvir áudio do PC</button>
+            <button id="greet-max" type="button">Ouvir saudação</button>
           <label class="toggle"><input type="checkbox" id="voice-mode" checked> Responder em voz alta</label>
           <label class="toggle"><input type="checkbox" id="continuous-voice" checked> Escuta contínua</label>
           <button id="screen-observe" type="button" aria-pressed="false">Observar tela</button>
@@ -82,7 +87,8 @@
         </div>
         <p id="initiative-status" role="status">Iniciativa desativada.</p>
         <p id="screen-status" role="status">Tela não compartilhada.</p>
-        <p id="mic-feedback" role="status" hidden></p>
+        <p id="system-audio-status" role="status">Áudio do PC desligado.</p>
+          <p id="mic-feedback" role="status" hidden></p>
         <video id="camera-preview" autoplay playsinline muted hidden aria-label="Prévia da sua câmera"></video>
       </div>
       <details id="developer-panel" hidden><summary>Max Developer</summary><p id="developer-status" role="status">Selecione um projeto Git.</p><button id="developer-choose" type="button">Autorizar projeto</button> <button id="developer-revoke" type="button">Revogar</button><label>Arquivos (até 8)<select id="developer-files" multiple size="6"></select></label><label>Solicitação<textarea id="developer-task" maxlength="4000" rows="3"></textarea></label><button id="developer-propose" type="button">Preparar proposta</button> <button id="developer-apply" type="button" disabled>Aplicar proposta revisada</button><label>Testes disponíveis<select id="developer-tests" multiple size="4"></select></label><button id="developer-run-tests" type="button" disabled>Executar testes selecionados</button><button id="developer-codex" type="button" disabled>Continuar com Codex</button><pre id="developer-test-output"></pre><pre id="developer-review" style="white-space:pre-wrap;overflow-wrap:anywhere"></pre></details>
@@ -130,8 +136,14 @@
     </section>
     <section id="brain" class="panel utility" hidden>
       <h1>Max Second Brain</h1>
+      <section id="autonomy-panel" hidden>
+        <h2>Aprendizado quando o PC estiver parado</h2>
+        <label><input id="autonomy-enabled" type="checkbox"> Aprender com fontes públicas durante a ociosidade</label>
+        <p>Consulta documentação de programação e guarda notas de estudo separadas das suas memórias. Pausa quando você volta a usar o PC.</p>
+        <p id="autonomy-status" role="status"></p><ul id="autonomy-notes"></ul>
+      </section>
       <p>Seu mapa de conhecimentos. Somente notas autorizadas e relevantes entram no contexto das conversas.</p>
-      <label><input type="checkbox" id="living-memory-enabled"> Sugerir lembranças a partir das minhas mensagens (OpenAI)</label>
+      <label><input type="checkbox" id="living-memory-enabled"> Sugerir lembranças a partir das minhas mensagens</label>
       <p id="living-memory-status" role="status"></p><div id="living-memory-suggestions"></div>
       <div class="brain-tools"><strong id="brain-count">0 notas</strong><button id="brain-add" type="button">+ Nova nota</button><button id="brain-refresh" type="button">Sincronizar</button><label>Área <select id="brain-filter"><option value="">Todas</option></select></label></div>
       <div id="brain-graph"></div><button id="brain-analyze" type="button">Encontrar conexões</button><p id="brain-link-status" role="status"></p><div id="brain-link-suggestions"></div><p id="brain-status" role="status"></p>

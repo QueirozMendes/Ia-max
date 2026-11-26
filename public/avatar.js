@@ -1,10 +1,51 @@
+import {expressionForText} from './expression-cues.js';
 import { mountLive2D } from './live2d.js';
 const canvas = document.getElementById('max-avatar');
 const stage = canvas.parentElement;
 const ctx = canvas.getContext('2d');
 let liveAvatar = null;
 const avatarStatus = document.getElementById('avatar-engine');
-void mountLive2D(stage, canvas, avatarStatus).then(result => { liveAvatar = result; });
+const choice=document.getElementById('avatar-engine-choice');
+const expression=document.getElementById('avatar-expression');
+const expressionLabel=document.getElementById('avatar-expression-label');
+const motion=document.getElementById('avatar-motion');
+let engineEpoch=0;
+let selectedExpression='Normal';
+function applyExpression(name){
+ selectedExpression=name;
+ if(liveAvatar?.expressions.includes(name))void liveAvatar.expression(name);
+ if(expression)expression.value=name;
+}
+async function selectEngine(value){
+  const current=++engineEpoch;
+  liveAvatar?.destroy(); liveAvatar=null;
+  if(expressionLabel)expressionLabel.hidden=true;
+  if(motion)motion.hidden=true;
+  if(value!=='epsilon'){avatarStatus.textContent='Max clássica';return;}
+  avatarStatus.textContent='Carregando Epsilon…';
+  const result=await mountLive2D(stage,canvas,avatarStatus);
+  if(current!==engineEpoch){result?.destroy();return;}
+  liveAvatar=result;
+  if(result)applyExpression(selectedExpression);
+  if(result && expression){
+    expression.replaceChildren(...result.expressions.map(name=>{const o=document.createElement('option');o.value=name;o.textContent=name;return o;}));
+    applyExpression(result.expressions.includes(selectedExpression)?selectedExpression:result.expressions[0]);
+    expressionLabel.hidden=false; motion.hidden=false;
+    expression.onchange=()=>{applyExpression(expression.value);broadcastPresence(true);};
+    motion.onclick=()=>performGesture('FlickUp',1);
+  }
+}
+let engine='epsilon';
+try{
+  if(localStorage.getItem('max.avatar.default-version')!=='epsilon-1'){
+    localStorage.setItem('max.avatar.engine','epsilon');
+    localStorage.setItem('max.avatar.default-version','epsilon-1');
+  }
+  engine=localStorage.getItem('max.avatar.engine')||'epsilon';
+}catch{}
+if(choice){choice.value=engine;choice.onchange=()=>{try{localStorage.setItem('max.avatar.engine',choice.value);}catch{} void selectEngine(choice.value);};}
+window.addEventListener('storage',event=>{if(event.key==='max.avatar.engine'){if(choice)choice.value=event.newValue;void selectEngine(event.newValue);}});
+void selectEngine(engine);
 const reduced = matchMedia('(prefers-reduced-motion: reduce)');
 const portrait = new Image();
 portrait.src = '/max-anime.png';
@@ -71,7 +112,43 @@ let mouthShape = 0;
 let smoothTilt = 0;
 export function setVoiceLevel(value) {
   voiceLevel = Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : null;
+  broadcastPresence();
 }
+const isCompanion=location.pathname==='/companion.html';
+const channel=typeof BroadcastChannel==='function'?new BroadcastChannel('max-presence-v1'):null;
+let lastSent=0,lastReceived=performance.now();
+function broadcastPresence(force=false){
+ const now=performance.now();
+ if(isCompanion||!channel||!force&&now-lastSent<33)return;
+ lastSent=now;channel.postMessage({kind:'frame',state,voiceLevel,pulse:now<mouthUntil,expression:selectedExpression,gaze:{x:target.x,y:target.y}});
+}
+if(channel){
+ channel.onmessage=event=>{
+  const data=event.data;
+  if(!isCompanion){if(data?.kind==='ready')broadcastPresence(true);return;}
+  if(data?.kind==='motion'){if(gestureGroups[data.group]>data.index&&Number.isInteger(data.index)&&data.index>=0)void liveAvatar?.motion(data.group,data.index);return;}
+  if(data?.kind!=='frame'||!['idle','listening','thinking','speaking'].includes(data.state))return;
+  lastReceived=performance.now();setAvatarState(data.state);setVoiceLevel(data.voiceLevel);
+  if(typeof data.expression==='string'&&data.expression!==selectedExpression)applyExpression(data.expression);
+  if(Number.isFinite(data.gaze?.x)&&Number.isFinite(data.gaze?.y)){target.x=Math.max(-1,Math.min(1,data.gaze.x));target.y=Math.max(-1,Math.min(1,data.gaze.y));}
+  if(data.pulse)moveMouth();
+ };
+ if(isCompanion)channel.postMessage({kind:'ready'});
+}
+const gestureGroups={FlickUp:2,Flick:2,Tap:4,Flick3:2,FlickDown:2,Shake:2};
+let gestureIndex=0,lastGestureAt=0;
+function performGesture(chosenGroup,chosenIndex){
+ const groups=Object.keys(gestureGroups),group=chosenGroup||groups[gestureIndex%groups.length],index=Number.isInteger(chosenIndex)?chosenIndex:Math.floor(gestureIndex/groups.length)%gestureGroups[group];
+ gestureIndex++;lastGestureAt=performance.now();void liveAvatar?.motion(group,index);
+ if(!isCompanion)channel?.postMessage({kind:'motion',group,index});
+}
+export function expressMessage(text){applyExpression(expressionForText(text));broadcastPresence(true);if(!reduced.matches)performGesture();}
+const presenceHeartbeat=setInterval(()=>{
+ if(isCompanion){if(performance.now()-lastReceived>2500&&state!=='idle')setAvatarState('idle');}
+ else {broadcastPresence(true);if(liveAvatar&&!reduced.matches&&performance.now()-lastGestureAt>(state==='speaking'?8000:18000))performGesture();}
+},1000);
+window.addEventListener('pagehide',()=>{clearInterval(presenceHeartbeat);channel?.close();});
+
 let nextBlink = performance.now() + 2200;
 
 export function setAvatarState(next) {
@@ -80,19 +157,22 @@ export function setAvatarState(next) {
   stage.dataset.state = next;
   if (next === 'speaking') moveMouth();
   else { voiceLevel = null; mouthUntil = 0; }
+  broadcastPresence(true);
 }
 
 export function moveMouth() {
   mouthUntil = performance.now() + 210;
+  broadcastPresence(true);
 }
 
 window.addEventListener('pointermove', event => {
+  if(isCompanion)return;
   const box = stage.getBoundingClientRect();
   if (!box.width) return;
   target.x = Math.max(-1, Math.min(1, (event.clientX - box.left - box.width / 2) / (box.width / 2)));
   target.y = Math.max(-1, Math.min(1, (event.clientY - box.top - box.height / 2) / (box.height / 2)));
 });
-document.addEventListener('pointerleave', () => { target.x = target.y = 0; });
+document.addEventListener('pointerleave', () => { if(!isCompanion)target.x = target.y = 0; });
 
 function drawEye({ x, y }, blink, image = portrait, scale = 1) {
   const halfWidth = 58 * scale;

@@ -1,5 +1,5 @@
 // Captures transient frames only after explicit user consent. Never stores images.
-export function createScreenObserver({ button, automatic, status, available, busy, onComment }) {
+export function createScreenObserver({ button, automatic, status, available, busy, onComment, authorize=async()=>{} }) {
   let stream, video, timer, controller, previous, lastComment = '', epoch = 0, lastRequest = 0, failures = 0;
   const canvas = document.createElement('canvas');
   const context = canvas.getContext('2d', { willReadFrequently: true });
@@ -70,6 +70,7 @@ export function createScreenObserver({ button, automatic, status, available, bus
     button.disabled = true;
     const current = ++epoch;
     try {
+      await authorize();
       const source = await navigator.mediaDevices.getDisplayMedia({video:{frameRate:2},audio:false});
       if (current !== epoch) { source.getTracks().forEach(t=>t.stop()); return; }
       stream = source;
@@ -85,7 +86,7 @@ export function createScreenObserver({ button, automatic, status, available, bus
   };
   automatic.onchange = () => {
     if (!automatic.checked) { controller?.abort(); epoch++; status.textContent = stream ? 'Análise automática pausada.' : 'Tela não compartilhada.'; return; }
-    if (!stream || !available() || !confirm('Autorizar envio periódico de imagens da tela ao modelo OpenAI configurado? Isso consome créditos e pode expor dados visíveis ao provedor.')) { automatic.checked = false; return; }
+    if (!stream || !available() || !confirm('Autorizar análise periódica das imagens da tela pelo modelo configurado? No modo local elas permanecem neste PC. Em modo de nuvem, imagens serão enviadas ao provedor.')) { automatic.checked = false; return; }
     status.textContent = 'Observação automática ativa.'; void tick();
   };
   window.addEventListener('pagehide',stop);

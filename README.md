@@ -2,6 +2,10 @@
 
 Max é uma assistente pessoal em português brasileiro. Ela conversa, ajuda com programação e estudos, orienta sobre tarefas e pode consultar a web com fontes. O painel roda no navegador e o servidor escuta apenas no próprio computador.
 
+## Windows: abrir com dois cliques
+
+Consulte [Windows e recursos locais](WINDOWS-LOCAL.md). O instalador cria o atalho **Max** na Área de Trabalho. Ele inicia o Core quando necessário e abre o aplicativo com a personagem flutuante.
+
 ## Abrir no Mac
 
 Com Node.js 22 ou mais recente, execute na pasta do projeto:

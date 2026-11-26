@@ -45,7 +45,7 @@ setInterval(()=>{if(!panel.hidden&&!document.hidden)void refresh();},10000);
 const learning=$('living-memory-enabled'), learningStatus=$('living-memory-status'), suggestionsBox=$('living-memory-suggestions');
 let learningRequest, suggestionEpoch=0;
 learning.onchange=()=>{
- if(learning.checked&&!confirm('Permitir análise adicional das mensagens que você enviar para sugerir lembranças? A OpenAI recebe o texto da mensagem e notas relevantes autorizadas. Nenhuma sugestão é salva sem sua revisão.'))learning.checked=false;
+ if(learning.checked&&!confirm('Permitir análise adicional das mensagens que você enviar para sugerir lembranças? O modelo configurado recebe o texto da mensagem e notas relevantes autorizadas. No modo local, tudo permanece no PC. Nenhuma sugestão é salva sem sua revisão.'))learning.checked=false;
  if(!learning.checked){suggestionEpoch++;learningRequest?.abort();suggestionsBox.replaceChildren();}
  learningStatus.textContent=learning.checked?'Memória viva ativa nesta sessão.':'Memória viva desativada.';
 };

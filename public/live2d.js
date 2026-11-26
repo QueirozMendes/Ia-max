@@ -1,10 +1,12 @@
+import { resolveParameters } from './live2d-parameters.js';
 // Optional Cubism 4 runtime. All assets are served locally.
 export async function mountLive2D(stage, fallback, status) {
   let app, model, observer;
   const load = src => new Promise((resolve, reject) => {
+    if (document.querySelector('script[data-loaded="'+src+'"]')) return resolve();
     const script = document.createElement('script');
     script.src = src;
-    script.onload = resolve;
+    script.onload = () => { script.dataset.loaded=src; resolve(); };
     script.onerror = () => { script.remove(); reject(new Error('Runtime ausente')); };
     document.head.append(script);
   });
@@ -18,6 +20,7 @@ export async function mountLive2D(stage, fallback, status) {
     if (!available?.live2d) { status.textContent = 'Avatar clássico · Epsilon aguardando instalação'; return null; }
     await load('/live2d/vendor/live2dcubismcore.min.js');
     await load('/live2d/vendor/pixi.min.js');
+    await load('/live2d/vendor/unsafe-eval.min.js');
     await load('/live2d/vendor/cubism4.min.js');
     const PIXI = window.PIXI;
     const Live2DModel = PIXI.live2d.Live2DModel;
@@ -42,14 +45,16 @@ export async function mountLive2D(stage, fallback, status) {
     observer = new ResizeObserver(resize);
     observer.observe(stage);
     resize();
+    const ids=resolveParameters(model.internalModel.coreModel);
+    let gestureAt=0;
     let frame = { mouth: 0, gazeX: 0, gazeY: 0, tilt: 0, still: false, state: 'idle' };
     let pose = { x: 0, y: 0, z: 0, smile: 0, body: 0 };
     let last = performance.now();
     const parameters = () => {
       const core = model.internalModel.coreModel;
       const set = (id, value) => {
-        if (typeof core.getParameterIndex === 'function' && core.getParameterIndex(id) >= core.getParameterCount()) return;
-        core.setParameterValueById(id, value);
+        const actual=ids[id];
+        if(actual)core.setParameterValueById(actual,value);
       };
       const now = performance.now();
       const dt = Math.min(50, Math.max(0, now - last));
@@ -59,30 +64,36 @@ export async function mountLive2D(stage, fallback, status) {
       const thinking = frame.state === 'thinking';
       const speaking = frame.state === 'speaking';
       const targets = {
-        x: frame.still ? 0 : frame.gazeX * 18,
-        y: frame.still ? 0 : -frame.gazeY * 12 + (thinking ? 4 : 0),
-        z: frame.still ? 0 : frame.tilt * 180 / Math.PI + (listening ? -4 : 0),
+        x: frame.still ? 0 : frame.gazeX * 18 + (speaking?Math.sin(now/510)*3.5:0),
+        y: frame.still ? 0 : -frame.gazeY * 12 + (thinking ? 4 : speaking ? Math.sin(now/310)*2.5 : 0),
+        z: frame.still ? 0 : frame.tilt * 180 / Math.PI + (listening ? -4 : speaking?Math.sin(now/850)*2:0),
         smile: speaking ? .35 : listening ? .15 : 0,
         body: frame.still ? 0 : frame.gazeX * 5 + Math.sin(now / 1800) * 1.5,
       };
       for (const key of Object.keys(pose)) pose[key] += (targets[key] - pose[key]) * ease;
-      set('ParamMouthOpenY', frame.mouth);
+      set('ParamMouthOpenY', Math.min(1,Math.max(0,frame.mouth)*1.25));
+      set('ParamBreath',frame.still?0.5:(Math.sin(now/1400)+1)/2);
+
       set('ParamAngleX', pose.x);
       set('ParamAngleY', pose.y);
       set('ParamAngleZ', pose.z);
       set('ParamBodyAngleX', pose.body);
-      set('ParamMouthForm', pose.smile);
+      // Expressions own mouth shape; lip-sync only owns mouth opening.
       set('ParamEyeBallX', frame.still ? 0 : frame.gazeX);
       set('ParamEyeBallY', frame.still ? 0 : -frame.gazeY);
     };
     model.internalModel.on('beforeModelUpdate', parameters);
     fallback.hidden = true;
-    status.textContent = 'Avatar Live2D ativo · modelo provisório';
+    status.textContent = 'Max · Live2D Epsilon';
+    const settings=await fetch('/live2d/model/max.model3.json').then(r=>r.json());
     return {
+      expressions:(settings.FileReferences.Expressions||[]).map(e=>e.Name),
+      expression(name){return model.expression(name);},
+      motion(group='Tap',index=0){return model.motion(group,index,3);},
       update(next) { frame = next; },
       destroy: release,
     };
-  } catch {
+  } catch (error) { console.error('Live2D initialization failed',error);
     release();
     status.textContent = 'Avatar clássico · Live2D indisponível';
     return null;

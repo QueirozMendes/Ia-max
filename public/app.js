@@ -1,8 +1,10 @@
+import {speechText} from './expression-cues.js';
 import { decideInitiative } from './initiative.js';
 import { createHearing } from './hearing.js';
+import { createVoiceInput } from './voice-input.js';
 import { createScreenObserver } from './screen-observer.js';
 import { splitSpeech } from './voice.js';
-import { moveMouth, setAvatarState, setVoiceLevel } from './avatar.js';
+import { moveMouth, setAvatarState, setVoiceLevel, expressMessage } from './avatar.js';
 import { library } from './library.js';
 
 const byId = id => document.getElementById(id);
@@ -24,6 +26,8 @@ const frameButton = byId('camera-frame');
 const voiceMode = byId('voice-mode');
 voiceMode.disabled = !window.speechSynthesis;
 let supportsVision = false;
+let visionLocal = false;
+let localFeatures = false;
 let supportsCameraAnalysis = false;
 let ownerName = 'Gabriel';
 let modelConfigured;
@@ -36,7 +40,7 @@ function updateBrainSelection(){
  const web=byId('search');
  web.disabled=target!=='openai'; web.parentElement.hidden=web.disabled; if(web.disabled)web.checked=false;
  document.querySelector('[data-prompt=""]').hidden=web.disabled;
- supportsCameraAnalysis=['openai','claude'].includes(target);
+ supportsCameraAnalysis=['openai','claude'].includes(target) || target==='local' && visionLocal;
  if(cameraStream)frameButton.hidden=!supportsCameraAnalysis;
 }
 
@@ -72,6 +76,7 @@ camera.onclick = async () => {
   if (cameraStream) return stopCamera();
   camera.disabled = true;
   try {
+    await window.maxSensors?.camera();
     cameraStream = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 640 }, height: { ideal: 480 } }, audio: false });
     cameraStream.getVideoTracks().forEach(track => track.addEventListener('ended', stopCamera));
     preview.srcObject = cameraStream;
@@ -188,6 +193,16 @@ let unansweredInitiatives = 0;
 let initiativeRequest;
 const initiativeToggle = byId('initiative-enabled');
 const initiativeStatus = byId('initiative-status');
+let desktopAutonomy=false,desktopIdleSeconds=0;
+window.addEventListener('max:idle',event=>{desktopIdleSeconds=Number(event.detail?.idleSeconds)||0;});
+window.addEventListener('max:autonomy',event=>{
+ desktopAutonomy=event.detail?.enabled===true;
+ initiativeToggle.checked=desktopAutonomy;
+ initiativeStatus.textContent=desktopAutonomy?'Iniciativa ativa durante a ociosidade.':'Iniciativa desativada.';
+ if(!desktopAutonomy)initiativeRequest?.abort();
+});
+if(window.maxAutonomy)window.maxAutonomy.status().then(data=>{desktopAutonomy=data.enabled===true;desktopIdleSeconds=Number(data.idleSeconds)||0;initiativeToggle.checked=desktopAutonomy;initiativeStatus.textContent=desktopAutonomy?'Iniciativa ativa durante a ociosidade.':'Iniciativa desativada.';}).catch(()=>{});
+if(window.maxAutonomy)setInterval(()=>window.maxAutonomy.presence({busy:pending||syncBusy||!syncReady||Boolean(message.value.trim()),speaking:Boolean(playback),userSpeaking:Date.now()-lastHumanSpeechAt<15000}),1000);
 function noteInteraction() {
   lastInteractionAt = Date.now();
   unansweredInitiatives = 0;
@@ -195,16 +210,16 @@ function noteInteraction() {
 }
 for (const event of ['pointerdown','keydown']) document.addEventListener(event,noteInteraction,{passive:true});
 initiativeToggle.onchange = () => {
-  if (initiativeToggle.checked && !confirm('Permitir conversas espontâneas? A Max poderá usar trechos recentes da conversa com o modelo OpenAI para iniciar um assunto.')) initiativeToggle.checked = false;
+  if (initiativeToggle.checked && !confirm('Permitir conversas espontâneas? A Max poderá usar trechos recentes da conversa com o modelo configurado para iniciar um assunto. No modo local, o contexto fica no PC.')) initiativeToggle.checked = false;
   lastInitiativeAt = Date.now();
   unansweredInitiatives = 0;
   if (!initiativeToggle.checked) initiativeRequest?.abort();
   initiativeStatus.textContent = initiativeToggle.checked ? 'Iniciativa ativa.' : 'Iniciativa desativada.';
 };
 async function tickInitiative() {
-  if (!supportsVision || !syncReady || initiativeRequest || document.hidden || !voiceMode.checked) return;
+  if (!(localFeatures || supportsVision) || !syncReady || initiativeRequest || (document.hidden&&!desktopAutonomy) || !voiceMode.checked) return;
   const now = Date.now();
-  const kind = decideInitiative({enabled:initiativeToggle.checked,quiet:!voiceMode.checked,speaking:Boolean(playback),userSpeaking:now-lastHumanSpeechAt<15000,busy:pending||syncBusy||Boolean(message.value.trim()),lastSpeechAt:Math.max(lastHumanSpeechAt,lastInitiativeAt,lastScreenCommentAt),lastActivityAt:lastInteractionAt,unanswered:unansweredInitiatives,screenConsent:false},now);
+  const kind = decideInitiative({enabled:initiativeToggle.checked,quiet:!voiceMode.checked,speaking:Boolean(playback),userSpeaking:now-lastHumanSpeechAt<15000,busy:pending||syncBusy||Boolean(message.value.trim())||(desktopAutonomy&&desktopIdleSeconds<120),lastSpeechAt:Math.max(lastHumanSpeechAt,lastInitiativeAt,lastScreenCommentAt),lastActivityAt:lastInteractionAt,unanswered:unansweredInitiatives,screenConsent:false},now);
   if (!kind) return;
   const controller = new AbortController(); initiativeRequest = controller;
   lastInitiativeAt = now;
@@ -212,7 +227,7 @@ async function tickInitiative() {
     const response = await fetch('/api/initiative',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({kind,previous:lastInitiativeComment}),signal:controller.signal});
     if (!response.ok) throw Error('Iniciativa indisponível');
     const result = await response.json();
-    if (controller.signal.aborted || !initiativeToggle.checked || !voiceMode.checked || pending || playback || document.hidden || !result.comment) return;
+    if (controller.signal.aborted || !initiativeToggle.checked || !voiceMode.checked || pending || playback || (document.hidden&&!desktopAutonomy) || !result.comment) return;
     lastInitiativeComment = result.comment;
     unansweredInitiatives++;
     initiativeStatus.textContent = 'Max: ' + result.comment;
@@ -227,6 +242,7 @@ const screenObserver = createScreenObserver({
   automatic: byId('screen-auto'),
   status: byId('screen-status'),
   available: () => supportsVision,
+  authorize: () => window.maxSensors?.screen(),
   busy: () => pending || Boolean(initiativeRequest) || Boolean(playback) || Boolean(message.value.trim()) || Date.now() - lastScreenCommentAt < 180000 || Date.now() - lastHumanSpeechAt < 15000,
   onComment: comment => {
     lastScreenCommentAt = Date.now();
@@ -303,7 +319,8 @@ document.querySelectorAll('[data-panel]').forEach(button => {
   };
 });
 
-fetch('/api/status').then(response => response.json()).then(({ configured, configurationError, owner, provider, providerName, codexAvailable, expressiveVoice: available, hearingAvailable: hearingConfigured, brainMode, brainOptions }) => {
+fetch('/api/status').then(response => response.json()).then(({ configured, configurationError, owner, provider, providerName, codexAvailable, expressiveVoice: available, hearingAvailable: hearingConfigured, brainMode, brainOptions, visionLocal: localVisionReady, localFeatures: localReady }) => {
+  visionLocal=localVisionReady===true; localFeatures=localReady===true;
   ownerName = owner;
   modelConfigured = configured;
   modelSetupError = configurationError;
@@ -318,8 +335,8 @@ fetch('/api/status').then(response => response.json()).then(({ configured, confi
     greet.disabled = false;
     voiceMode.disabled = false;
   }
-  supportsVision = configured && provider === 'openai';
-  supportsCameraAnalysis = configured && ['openai','claude'].includes(provider);
+  supportsVision = visionLocal || configured && provider === 'openai';
+  supportsCameraAnalysis = visionLocal || configured && ['openai','claude'].includes(provider);
   if (cameraStream) frameButton.hidden = !supportsCameraAnalysis;
   byId('greeting').textContent = 'Oi, ' + owner + '. Eu sou a Max.';
   byId('connection').textContent = configured ? 'Modelo · ' + providerName : providerName + ' · configuração pendente';
@@ -360,7 +377,7 @@ async function connectLipSync(active) {
       if (playback !== active) return;
       analyser.getFloatTimeDomainData(samples);
       const rms = Math.sqrt(samples.reduce((sum, value) => sum + value * value, 0) / samples.length);
-      setVoiceLevel(active.audio.paused ? 0 : Math.min(1, Math.max(0, (rms - .012) * 7)));
+      setVoiceLevel(active.audio.paused ? 0 : Math.min(1, Math.pow(Math.max(0, rms - .006) * 10, .72)));
       active.lipFrame = requestAnimationFrame(update);
     };
     update();
@@ -396,11 +413,8 @@ async function speak(text, button, label = 'Ouvir', onDone, style = 'natural') {
   const sameButton = button && playback?.button === button;
   stopSpeaking();
   if (sameButton) return;
-  const spoken = text.replace(/`{3}[\s\S]*?`{3}/g, ' Veja o trecho de código na tela. ')
-    .replace(/\[([^\]]+)\]\(https?:[^)]+\)/g, '$1').replace(/[*#`]/g, '')
-    .replace(/[.…]{3,}/g, '.')
-    .replace(/([^.!?:;])\s*\n\s*\n/g, '$1. ')
-    .replace(/\s+/g, ' ').trim();
+  expressMessage(text);
+  const spoken = speechText(text);
   if (!spoken) return;
   const active = { controller: new AbortController(), button, label, onDone };
   playback = active;
@@ -495,8 +509,15 @@ function renderConversation() {
     article.className = 'turn ' + entry.role;
     const title = document.createElement('strong');
     title.textContent = entry.role === 'user' ? 'Você' : 'Max';
-    const paragraph = document.createElement('p');
-    paragraph.textContent = entry.content;
+    const paragraph = document.createElement(entry.spoken === true && entry.role === 'user' ? 'div' : 'p');
+    paragraph.textContent = entry.spoken === true && entry.role === 'user' ? 'Mensagem por voz' : entry.content;
+    if(entry.spoken === true && entry.role === 'user'){
+      const details=document.createElement('details');
+      const summary=document.createElement('summary');
+      summary.textContent='Ver texto reconhecido';
+      const transcript=document.createElement('p');transcript.textContent=entry.content;
+      details.append(summary,transcript);paragraph.append(details);
+    }
     article.append(title, paragraph);
     if (entry.file) {
       const filename = document.createElement('small');
@@ -610,7 +631,12 @@ function showMicFeedback(text) {
 const hearing = createHearing({
   status: text => {
     showMicFeedback(text);
-    mic.textContent = hearing.active() ? 'Desativar microfone' : 'Ativar microfone contínuo';
+    if(!playback&&!pending){
+      if(text.startsWith('Ouvi você'))setPresence('thinking','Entendendo sua fala');
+      else if(hearing.active())setPresence('listening','Ouvindo você');
+      else setPresence('idle','Pronta para conversar');
+    }
+    mic.textContent = hearing.active() ? 'Desativar microfone' : 'Conversar por voz';
     mic.setAttribute('aria-pressed', String(hearing.active()));
   },
   playing: () => Boolean(playback),
@@ -618,40 +644,37 @@ const hearing = createHearing({
   onSpeech: () => {
     lastHumanSpeechAt = Date.now();
     noteInteraction();
+    setPresence('listening','Ouvindo você');
     if (playback) stopSpeaking();
   },
-  onTranscript: heard => {
-    lastHumanSpeechAt = Date.now();
-    if (pending || syncBusy || !syncReady || message.value.trim() || byId('send').disabled) {
-      showMicFeedback('Fala detectada enquanto a conversa estava ocupada.');
-      return;
-    }
-    message.value = heard;
-    if (voiceMode.checked) {
-      nextSpokenTurn = true;
-      byId('chat-form').requestSubmit();
-    }
-    if (!continuousVoice.checked) stopVoiceSession();
-  }
+  onTranscript: createVoiceInput({
+    canSubmit: () => !pending && !syncBusy && syncReady && !byId('send').disabled,
+    submit: text => submitMessage(undefined,text),
+    feedback: showMicFeedback,
+    onAccepted: () => { lastHumanSpeechAt=Date.now(); },
+    continuous: () => continuousVoice.checked,
+    stop: () => stopVoiceSession()
+  })
 });
 stopVoiceSession = () => hearing.stop();
-continueVoiceSession = () => {};
+continueVoiceSession = () => {if(hearing.active()){setPresence('listening','Ouvindo você');showMicFeedback('Microfone ativo · escuta contínua.');}};
 mic.onclick = async () => {
   if (hearing.active()) return stopVoiceSession();
-  if (!hearingAvailable) return showMicFeedback('Configure OPENAI_API_KEY para transcrição de áudio.');
-  if (!confirm('Ativar microfone contínuo? Trechos detectados como fala são enviados à OpenAI para transcrição. Não há gravação permanente no Max Core. Avise outras pessoas próximas e pause quando precisar de privacidade.')) return;
+  if (!hearingAvailable) return showMicFeedback('Instale a audição local ou configure explicitamente a transcrição OpenAI.');
+  try { await window.maxSensors?.microphone(); } catch { return showMicFeedback('Não consegui autorizar o microfone nesta sessão.'); }
+  voiceMode.checked = true;
   await hearing.start();
-  mic.textContent = hearing.active() ? 'Desativar microfone' : 'Ativar microfone contínuo';
+  mic.textContent = hearing.active() ? 'Desativar microfone' : 'Conversar por voz';
   mic.setAttribute('aria-pressed', String(hearing.active()));
 };
 continuousVoice.onchange = () => { if (!continuousVoice.checked) stopVoiceSession(); };
 
-byId('chat-form').onsubmit = async event => {
-  event.preventDefault();
+async function submitMessage(event, spokenInput) {
+  event?.preventDefault();
   noteInteraction();
-  const spokenTurn = nextSpokenTurn;
+  const spokenTurn = typeof spokenInput === 'string' || nextSpokenTurn;
   nextSpokenTurn = false;
-  const content = message.value.trim();
+  const content = typeof spokenInput === 'string' ? spokenInput.trim() : message.value.trim();
   if (pending || byId('send').disabled || !content) return;
 
   await memoryInitialization;
@@ -684,7 +707,7 @@ byId('chat-form').onsubmit = async event => {
 
   const chosenBrain=autoBrain?brainSelect.value:undefined;
   if(chosenBrain&&chosenBrain!=='local'&&!confirm('Usar '+chosenBrain+' nesta mensagem? Dados da conversa podem ser enviados ao provedor externo e gerar cobrança.'))return;
-  const user = { role: 'user', content, file: attachment?.name };
+  const user = { role: 'user', content, file: attachment?.name, ...(spokenTurn ? {spoken:true} : {}) };
   pending = true;
   const controls = ['send', 'new-chat', 'attach', 'remove-file', 'message', 'search', 'use-tasks', 'codex-mode', 'remove-reference', 'camera-frame','brain-select'].map(byId).filter(control => !control.disabled);
   controls.forEach(control => control.disabled = true);
@@ -702,6 +725,7 @@ byId('chat-form').onsubmit = async event => {
     });
     const result = await response.json();
     if (!response.ok) throw new Error(result.error);
+    expressMessage(result.answer);
     const turn = { role: 'assistant', content: result.answer, sources: result.sources };
     const next = [...messages, user, turn].slice(-100);
     try { await pushState('conversation', next); }
@@ -716,7 +740,7 @@ byId('chat-form').onsubmit = async event => {
     }
     status.textContent = result.incomplete ? 'A resposta atingiu o limite de tamanho.' : '';
     window.dispatchEvent(new CustomEvent('max:user-message',{detail:content}));
-    message.value = '';
+    if(!spokenTurn)message.value = '';
     clearAttachment();
     cameraFrame = undefined;
     frameButton.textContent = 'Compartilhar foto';
@@ -724,7 +748,7 @@ byId('chat-form').onsubmit = async event => {
     byId('use-tasks').checked = false;
     codexMode.checked = false;
     renderConversation();
-    if (voiceMode.checked) speak(result.answer, undefined, undefined, spokenTurn ? continueVoiceSession : undefined);
+    if (spokenTurn || voiceMode.checked) speak(result.answer, undefined, undefined, spokenTurn ? continueVoiceSession : undefined);
   } catch (error) {
     status.textContent = error instanceof TypeError ? 'Não consegui conectar ao servidor da Max.' : error.message;
   } finally {
@@ -732,9 +756,10 @@ byId('chat-form').onsubmit = async event => {
     if (!playback) setPresence('idle', 'Pronta para conversar');
     controls.forEach(control => control.disabled = false);
     if(autoBrain){brainSelect.value='local';updateBrainSelection();}
-    if (!byId('chat').hidden) message.focus();
+    if (!spokenTurn && !byId('chat').hidden) message.focus();
   }
-};
+}
+byId('chat-form').onsubmit = submitMessage;
 
 async function saveMemory(next, feedback) {
   await memoryInitialization;
@@ -925,3 +950,17 @@ if (window.maxDeveloper) {
     feedback.textContent=result.ok?'Codex terminou. Revise as alterações, inclusive arquivos novos.':'Codex não concluiu. Revise alterações parciais.';
   });
 }
+
+const systemAudioButton=byId('system-audio');
+const systemAudioStatus=byId('system-audio-status');
+if(systemAudioButton&&window.maxSensors){
+ const computerHearing=createHearing({
+  acquire:async()=>{await window.maxSensors.systemAudio();const media=await navigator.mediaDevices.getDisplayMedia({video:true,audio:true});if(!media.getAudioTracks().length){media.getTracks().forEach(t=>t.stop());throw Error('O Windows não forneceu áudio do PC.');}return media;},
+  label:'Áudio do PC',
+  status:text=>{systemAudioStatus.textContent=text;systemAudioButton.textContent=computerHearing.active()?'Parar áudio do PC':'Ouvir áudio do PC';systemAudioButton.setAttribute('aria-pressed',String(computerHearing.active()));},
+  playing:()=>Boolean(playback),busy:()=>pending,
+  onSpeech:()=>{lastHumanSpeechAt=Date.now();setPresence('listening','Ouvindo o áudio do PC');},
+  onTranscript:createVoiceInput({canSubmit:()=>!pending&&!syncBusy&&syncReady&&!byId('send').disabled,submit:text=>submitMessage(undefined,text),feedback:text=>{systemAudioStatus.textContent=text;},continuous:()=>true})
+ });
+ systemAudioButton.onclick=async()=>{if(computerHearing.active())return computerHearing.stop();voiceMode.checked=true;await computerHearing.start();};
+}else if(systemAudioButton){systemAudioButton.disabled=true;systemAudioStatus.textContent='Disponível no aplicativo Windows.';}

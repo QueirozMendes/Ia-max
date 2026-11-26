@@ -18,7 +18,7 @@ test('Core HTTP, static modules, persistence and access controls',{timeout:40000
  try{
   for(const name of ['server.js','package.json','lib','public'])await cp(join(root,name),join(directory,name),{recursive:true});
   const port=await portNumber(),origin='http://127.0.0.1:'+port;
-  const env={...process.env,PORT:String(port),MAX_PROVIDER:'openai',MAX_VOICE:'elevenlabs',OPENAI_API_KEY:'',ELEVENLABS_API_KEY:'',MAX_REMOTE_ORIGIN:'',MAX_REMOTE_PASSWORD:''};
+  const env={...process.env,PORT:String(port),MAX_PROVIDER:'openai',MAX_VOICE:'browser',OPENAI_API_KEY:'',ELEVENLABS_API_KEY:'',MAX_REMOTE_ORIGIN:'',MAX_REMOTE_PASSWORD:''};
   child=spawn(process.execPath,['server.js'],{cwd:directory,env,stdio:['ignore','pipe','pipe']});
   let output='';child.stdout.on('data',b=>output+=b);child.stderr.on('data',b=>output+=b);
   const request=(path,options)=>fetch(origin+path,{...options,signal:AbortSignal.timeout(3000)});
